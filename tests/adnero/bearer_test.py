@@ -73,11 +73,11 @@ class BearerBase(unittest.TestCase):
                 "GOOGLE_ADS_MCP_SHARED_SECRET": "k" * 32,
                 "GOOGLE_ADS_MCP_PUBLIC_URL": PUBLIC,
                 "GOOGLE_ADS_TOKENINFO_URL": self.stub.url,
+                "GOOGLE_ADS_MCP_ALLOWED_PROJECTS": "310132552575",
             },
         )
         env.start()
         self.addCleanup(env.stop)
-        os.environ.pop("GOOGLE_ADS_MCP_ALLOWED_PROJECTS", None)
         adnero_auth._CACHE.clear()
         self.addCleanup(adnero_auth._CACHE.clear)
 
@@ -102,6 +102,14 @@ class TokenOkTest(BearerBase):
 
     def test_refuses_a_token_google_rejects(self):
         self.assertFalse(adnero_auth.token_ok("unknown"))
+
+    def test_no_allowed_projects_refuses_every_token_without_asking_google(self):
+        self.stub.good("t0")
+        os.environ.pop("GOOGLE_ADS_MCP_ALLOWED_PROJECTS")
+        self.assertFalse(adnero_auth.token_ok("t0"))
+        os.environ["GOOGLE_ADS_MCP_ALLOWED_PROJECTS"] = " , "
+        self.assertFalse(adnero_auth.token_ok("t0"))
+        self.assertEqual(self.stub.calls, [])
 
     def test_project_allow_list(self):
         self.stub.good("t3", aud="310132552575-abc.apps.googleusercontent.com")
@@ -179,6 +187,15 @@ class HttpTest(BearerBase):
                     response.headers["www-authenticate"],
                     'Bearer resource_metadata="https://h.example/mcp-hosted/google-ads/.well-known/oauth-protected-resource"',
                 )
+
+    def test_unset_allowed_projects_gets_401_for_a_good_token(self):
+        self.stub.good("t10")
+        os.environ.pop("GOOGLE_ADS_MCP_ALLOWED_PROJECTS")
+        with self.app() as http:
+            response = self.post(http, "t10")
+            self.assertEqual(response.status_code, 401)
+            self.assertIn("resource_metadata=", response.headers["www-authenticate"])
+        self.assertEqual(self.stub.calls, [])
 
     def test_secret_still_works_without_a_bearer(self):
         with self.app() as http:

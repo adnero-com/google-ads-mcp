@@ -30,8 +30,8 @@ gateway sets from its authorization answer:
 
 Bearer mode (second way in, ``GOOGLE_ADS_MCP_PUBLIC_URL`` set): a remote MCP server with standard MCP OAuth.
 A request without the gateway's key may carry ``Authorization: Bearer <Google access token>``; the token is
-checked with Google's tokeninfo (the adwords scope, and the Cloud project when
-``GOOGLE_ADS_MCP_ALLOWED_PROJECTS`` is set) and is the token the tools use. A refused request gets a 401 with
+checked with Google's tokeninfo (the adwords scope, and a Cloud project listed in
+``GOOGLE_ADS_MCP_ALLOWED_PROJECTS``, required: unset, every token is refused) and is the token the tools use. A refused request gets a 401 with
 ``WWW-Authenticate: Bearer resource_metadata=...`` pointing at ``/.well-known/oauth-protected-resource``.
 
 No Application Default Credentials, no developer token, no OAuth proxy, no
@@ -239,16 +239,14 @@ def _judge(status: int, body: dict) -> bool:
         return False
     if ADWORDS_SCOPE not in str(body.get("scope", "")).split():
         return False
-    projects = _allowed_projects()
-    if projects:
-        aud = str(body.get("aud", ""))
-        return any(aud.startswith(f"{p}-") for p in projects)
-    return True
+    # Required: only our Cloud projects' tokens (none listed: none accepted).
+    aud = str(body.get("aud", ""))
+    return any(aud.startswith(f"{p}-") for p in _allowed_projects())
 
 
 def token_ok(token: str | None) -> bool:
-    """A Google access token with the adwords scope (and an allowed Cloud project, when configured)."""
-    if not token:
+    """A Google access token with the adwords scope, from one of the allowed Cloud projects (required: unset, none)."""
+    if not token or not _allowed_projects():
         return False
     key = hashlib.sha256(token.encode("utf-8")).hexdigest()
     cached = _cache_get(key)
@@ -408,5 +406,10 @@ def serve(server) -> None:
         logging.getLogger(__name__).warning(
             "%s is not set: not configured, every tool call is refused",
             SHARED_SECRET_ENV,
+        )
+    if bearer_enabled() and not _allowed_projects():
+        logging.getLogger(__name__).warning(
+            "%s is not set: bearer mode refuses every token (fails closed)",
+            ALLOWED_PROJECTS_ENV,
         )
     uvicorn.run(build_app(server), host="0.0.0.0", port=port, access_log=False)

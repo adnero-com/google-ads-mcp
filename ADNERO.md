@@ -29,8 +29,9 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   - `GET /.well-known/oauth-protected-resource` (and `.../mcp`) is public and returns the resource, Google as
     authorization server and the adwords scope. `/healthz` also reports `"bearer": bool`.
   - Env: `GOOGLE_ADS_MCP_PUBLIC_URL` (e.g. `https://xhfti.com/mcp-hosted/google-ads/mcp`; unset: bearer off, no
-    well-known routes), `GOOGLE_ADS_MCP_ALLOWED_PROJECTS` (comma-separated Cloud project numbers; when set, the
-    token's `aud` client id must start with one of them followed by `-`), `GOOGLE_ADS_TOKENINFO_URL` (overrides
+    well-known routes), `GOOGLE_ADS_MCP_ALLOWED_PROJECTS` (REQUIRED in bearer mode: comma-separated Cloud project
+    numbers; the token's `aud` client id must start with one of them followed by `-`; unset or empty: every bearer
+    token is refused without asking Google, and a warning is logged at start), `GOOGLE_ADS_TOKENINFO_URL` (overrides
     `https://oauth2.googleapis.com/tokeninfo`, for tests and e2e).
 - `login_customer_id`: in multi-tenant mode the header `x-google-ads-login-customer-id` wins, else the tool's
   `login_customer_id` argument (digits only), else none. Every `accounts_*`, `campaigns_*` and `keywords_*` tool
