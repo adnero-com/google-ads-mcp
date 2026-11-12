@@ -32,6 +32,12 @@ from ads_mcp.resources import (
 
 
 def run_server() -> None:
+    from ads_mcp import adnero_auth
+
+    if adnero_auth.enabled():
+        adnero_auth.serve(mcp)
+        return
+
     _CLIENT_ID = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_ID")
     _CLIENT_SECRET = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_SECRET")
     port = int(os.environ.get("PORT", "8080"))

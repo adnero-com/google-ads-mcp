@@ -37,6 +37,7 @@ from google.protobuf.json_format import MessageToDict
 from google.protobuf.message import Message as PbMessage
 import proto
 
+from ads_mcp import adnero_auth
 from ads_mcp.mcp_header_interceptor import MCPHeaderInterceptor
 
 # filename for generated field information used by search
@@ -103,6 +104,9 @@ def _create_credentials() -> google.auth.credentials.Credentials:
     from fastmcp.server.dependencies import get_access_token
     from google.oauth2.credentials import Credentials
 
+    if adnero_auth.enabled():
+        return adnero_auth.request_credentials()
+
     token_obj = get_access_token()
     if token_obj and token_obj.token:
         # Create credentials using the access token provided by FastMCP
@@ -127,6 +131,8 @@ def _get_login_customer_id(
     login_customer_id: str | int | None = None,
 ) -> str | None:
     """Returns login customer id, if set, from the parameter or the environment variable GOOGLE_ADS_LOGIN_CUSTOMER_ID."""
+    if adnero_auth.enabled():
+        return adnero_auth.login_customer_id()
     resolved_login_customer_id = (
         login_customer_id
         if login_customer_id is not None
@@ -155,6 +161,9 @@ def _get_googleads_client(
 
     if resolved_login_customer_id:
         args["login_customer_id"] = resolved_login_customer_id
+
+    if adnero_auth.enabled() and adnero_auth.api_endpoint():
+        args["endpoint"] = adnero_auth.api_endpoint()
 
     return GoogleAdsClient(**args)
 

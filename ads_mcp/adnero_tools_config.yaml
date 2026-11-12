@@ -1,0 +1,16 @@
+# The adnero fork's tool set (ADNERO.md): upstream's namespaces as they are,
+# minus the stdio-only video upload, plus ours. Selected in Dockerfile.adnero
+# with GOOGLE_ADS_MCP_TOOLS_CONFIG. AdHive's gateway classifies every tool
+# listed here (packages/mcp-gateway google-ads-tools.ts); a new one fails its test.
+namespaces:
+  customers: true
+  search: true
+  metadata: true
+  labels: true
+  assets:
+    enabled_tools:
+      - create_asset: true
+      - upload_video_asset: false
+  accounts: true
+  campaigns: true
+  keywords: true

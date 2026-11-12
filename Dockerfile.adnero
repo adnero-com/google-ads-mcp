@@ -1,0 +1,16 @@
+# AdHive's multi-tenant build (ADNERO.md): Streamable HTTP behind the AdHive MCP
+# gateway, per-request credentials from its headers, no OAuth proxy, no ADC.
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir . && useradd --system --uid 10001 app
+
+ENV ADNERO_MULTI_TENANT=1 \
+    GOOGLE_ADS_MCP_TOOLS_CONFIG=/app/ads_mcp/adnero_tools_config.yaml \
+    PORT=8080 \
+    PYTHONUNBUFFERED=1
+
+USER app
+EXPOSE 8080
+CMD ["google-ads-mcp"]
