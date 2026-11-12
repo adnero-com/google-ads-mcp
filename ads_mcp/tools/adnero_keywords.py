@@ -16,7 +16,7 @@
 
 from enum import Enum
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
@@ -55,7 +55,13 @@ def _keywords(items: list[Keyword]) -> list[tuple[str, str]]:
 
 
 @keywords_mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False)
+    title="Add keywords or negative keywords",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
 )
 def add(
     customer_id: str | int,
@@ -66,10 +72,16 @@ def add(
     cpc_bid_micros: int | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Adds keywords to an ad group, or negative keywords to an ad group or a campaign.
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -146,14 +158,20 @@ def add(
         },
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "keywords added"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )
 
 
 @keywords_mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True)
+    title="Remove keywords",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
 )
 def remove(
     customer_id: str | int,
@@ -161,10 +179,16 @@ def remove(
     ids: list[str],
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Removes keywords (positive or negative) from ad groups, or negatives from campaigns.
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -211,7 +235,7 @@ def remove(
         payload={"level": lvl, "ids": targets},
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "keywords removed"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )

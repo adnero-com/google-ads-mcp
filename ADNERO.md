@@ -24,6 +24,17 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   - `campaigns`: `set_status`, `set_budget`, `set_bids`, `create`,
     `create_ad_group`, `create_ad`
   - `keywords`: `add`, `remove`
+- Our tools follow MCP 2026-07-28. Each one has:
+  - a title and all four annotations;
+  - a Pydantic output (an `outputSchema`, plus `structuredContent` with its JSON text);
+  - errors that say what to fix;
+  - cursors on lists.
+  Writes return `MutationResult`: PROPOSED with a checksum, or APPLIED with the resource names. Called with
+  `validate_only=false` and no checksum, a client that declared form elicitation is asked through an
+  `input_required` result (SEP-2322). Google validates the change first, and the retry applies it only with the
+  person's acceptance and our checksum as `requestState`. Every other client gets the two-step flow.
+- The server instructions are set in multi-tenant mode: where to start, ready GAQL queries, the ops budget and the
+  approval flow.
 - `ads_mcp/adnero_tools_config.yaml` (the tool set) and `Dockerfile.adnero`.
 - Tests: `tests/adnero/`.
 

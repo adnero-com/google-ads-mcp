@@ -21,7 +21,7 @@ argument can make it live; turning it on is a separate `set_status` call.
 from enum import Enum
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -29,8 +29,6 @@ from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 
 campaigns_mcp = FastMCP("campaigns")
-
-_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
 
 
 class Level(str, Enum):
@@ -82,7 +80,15 @@ def _ids_for(level: str, ids: list[str]) -> list[str]:
     ]
 
 
-@campaigns_mcp.tool(annotations=_WRITE)
+@campaigns_mcp.tool(
+    title="Pause or turn on campaigns, ad groups, ads or keywords",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
 def set_status(
     customer_id: str | int,
     level: Level,
@@ -90,10 +96,16 @@ def set_status(
     status: Status,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Pauses or turns on campaigns, ad groups, ads or keywords (one level per call).
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account (digits; hyphens are dropped).
@@ -137,9 +149,9 @@ def set_status(
         payload={"level": lvl, "ids": targets, "status": st},
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, f"status {st}"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )
 
 
@@ -156,17 +168,31 @@ def _campaign_budget(cid: str, campaign_id: str) -> tuple[str, int, bool]:
     return b.resource_name, int(b.amount_micros), bool(b.explicitly_shared)
 
 
-@campaigns_mcp.tool(annotations=_WRITE)
+@campaigns_mcp.tool(
+    title="Set a campaign's daily budget",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
 def set_budget(
     customer_id: str | int,
     campaign_id: str,
     daily_budget_micros: int,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Sets a campaign's daily budget (its own budget; a shared budget is refused).
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -208,13 +234,21 @@ def set_budget(
         payload={"campaign_id": camp, "daily_budget_micros": amount},
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "daily budget set"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )
 
 
-@campaigns_mcp.tool(annotations=_WRITE)
+@campaigns_mcp.tool(
+    title="Set ad group or keyword bids",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
 def set_bids(
     customer_id: str | int,
     level: Level,
@@ -224,10 +258,16 @@ def set_bids(
     target_roas: float | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Sets bids on an ad group (max CPC, target CPA, target ROAS) or a keyword (max CPC).
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -286,13 +326,21 @@ def set_bids(
         payload={"level": lvl, "id": target, **chosen},
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "bids set"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )
 
 
-@campaigns_mcp.tool(annotations=_WRITE)
+@campaigns_mcp.tool(
+    title="Create a Search campaign (paused)",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
+)
 def create(
     customer_id: str | int,
     name: str,
@@ -306,10 +354,16 @@ def create(
     end_date_time: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Creates a Search campaign with its own daily budget, always PAUSED.
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -425,13 +479,21 @@ def create(
         payload=payload,
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "campaign created PAUSED"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )
 
 
-@campaigns_mcp.tool(annotations=_WRITE)
+@campaigns_mcp.tool(
+    title="Create an ad group (paused)",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
+)
 def create_ad_group(
     customer_id: str | int,
     campaign_id: str,
@@ -439,10 +501,16 @@ def create_ad_group(
     cpc_bid_micros: int | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Creates a Search ad group in an existing campaign, PAUSED.
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -481,13 +549,21 @@ def create_ad_group(
         payload={"campaign_id": camp, "name": name.strip(), "cpc": cpc},
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "ad group created PAUSED"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )
 
 
-@campaigns_mcp.tool(annotations=_WRITE)
+@campaigns_mcp.tool(
+    title="Create a responsive search ad (paused)",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
+)
 def create_ad(
     customer_id: str | int,
     ad_group_id: str,
@@ -498,10 +574,16 @@ def create_ad(
     path2: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
-) -> str:
+    ctx: Context | None = None,
+) -> m.MutationResult:
     """Creates a responsive search ad in an existing ad group, PAUSED.
 
-    Preview first: `validate_only=True` (the default) validates with Google and returns `change_items` and a `checksum`; nothing changes. Show the change to the user, then call again with `validate_only=False`, the same arguments and the `checksum`.
+    Costs 1 Google Ads operation per item on each call (the preview counts too).
+
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
+    checksum). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
@@ -567,7 +649,7 @@ def create_ad(
         },
         operations=operations,
         change_items=items,
-        describe=lambda r: m.applied(r, "ad created PAUSED"),
         validate_only=validate_only,
         checksum=checksum,
+        ctx=ctx,
     )

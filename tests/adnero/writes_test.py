@@ -45,10 +45,13 @@ class Harness(unittest.TestCase):
         return SimpleNamespace(mutate_operation_responses=[])
 
     def propose_then_confirm(self, fn, **kwargs):
-        proposal = json.loads(fn(**kwargs))
+        proposal = fn(**kwargs).model_dump()
         self.assertEqual(proposal["status"], "PROPOSED")
         self.assertTrue(self.requests[-1][0], "the preview validates only")
-        fn(**kwargs, validate_only=False, checksum=proposal["checksum"])
+        applied = fn(
+            **kwargs, validate_only=False, checksum=proposal["checksum"]
+        )
+        self.assertEqual(applied.status, "APPLIED")
         self.assertFalse(self.requests[-1][0], "the confirm applies")
         return proposal, self.requests[-1][1]
 
@@ -103,11 +106,9 @@ class SetStatusTest(Harness):
         self.assertEqual(self.requests, [], "nothing reached Google")
 
     def test_checksum_binds_the_arguments(self):
-        p = json.loads(
-            camp.set_status(
-                customer_id="1", level="CAMPAIGN", ids=["11"], status="PAUSED"
-            )
-        )
+        p = camp.set_status(
+            customer_id="1", level="CAMPAIGN", ids=["11"], status="PAUSED"
+        ).model_dump()
         with self.assertRaises(ToolError):
             camp.set_status(
                 customer_id="1",
@@ -146,7 +147,7 @@ class BudgetTest(Harness):
         self.assertEqual(update.resource_name, "customers/1/campaignBudgets/9")
         self.assertEqual(update.amount_micros, 7_500_000)
         item = proposal["change_items"][0]
-        self.assertEqual(item["original_value_readable"], "5000000")
+        self.assertEqual(item["before"], "5000000")
 
     def test_refuses_a_shared_budget(self):
         with patch(
@@ -292,6 +293,73 @@ class KeywordsTest(Harness):
             ops[0].ad_group_criterion_operation.remove,
             "customers/1/adGroupCriteria/7~8",
         )
+
+
+class ElicitationTest(Harness):
+    """validate_only=false without a checksum: a 2026-07-28 client with form elicitation is asked; others refused."""
+
+    def ctx(self, *, modern=True, elicit=True, responses=None, state=None):
+        meta = {
+            "io.modelcontextprotocol/clientCapabilities": (
+                {"elicitation": {"form": {}}} if elicit else {}
+            )
+        }
+        rc = SimpleNamespace(meta=meta)
+        return SimpleNamespace(
+            request_context=rc,
+            _is_modern_protocol=lambda: modern,
+            input_responses=responses,
+            request_state=state,
+        )
+
+    def call(self, ctx):
+        return camp.set_status(
+            customer_id="1",
+            level="CAMPAIGN",
+            ids=["11"],
+            status="ENABLED",
+            validate_only=False,
+            ctx=ctx,
+        )
+
+    def test_asks_in_the_client_after_google_validates(self):
+        from fastmcp.tools import InputRequiredToolResult
+
+        asked = self.call(self.ctx())
+        self.assertIsInstance(asked, InputRequiredToolResult)
+        self.assertEqual(len(self.requests), 1)
+        self.assertTrue(self.requests[0][0], "Google validated only")
+        req = asked.input_required.input_requests["confirm"]
+        self.assertIn("ENABLED", req.params.message)
+        self.assertTrue(asked.input_required.request_state)
+
+    def test_the_accepted_retry_applies(self):
+        asked = self.call(self.ctx())
+        state = asked.input_required.request_state
+        answer = SimpleNamespace(action="accept", content={"confirm": True})
+        done = self.call(self.ctx(responses={"confirm": answer}, state=state))
+        self.assertEqual(done.status, "APPLIED")
+        self.assertFalse(self.requests[-1][0])
+
+    def test_a_declined_or_foreign_answer_never_applies(self):
+        for answer, state in (
+            (SimpleNamespace(action="decline", content=None), None),
+            (
+                SimpleNamespace(action="accept", content={"confirm": True}),
+                "0" * 64,
+            ),
+        ):
+            before = len(self.requests)
+            result = self.call(
+                self.ctx(responses={"confirm": answer}, state=state)
+            )
+            self.assertNotEqual(getattr(result, "status", None), "APPLIED")
+            self.assertTrue(all(r[0] for r in self.requests[before:]))
+
+    def test_without_elicitation_the_two_step_is_required(self):
+        for ctx in (None, self.ctx(elicit=False), self.ctx(modern=False)):
+            with self.assertRaises(ToolError):
+                self.call(ctx)
 
 
 if __name__ == "__main__":

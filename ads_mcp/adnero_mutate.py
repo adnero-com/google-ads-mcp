@@ -25,7 +25,11 @@ from collections.abc import Callable, Sequence
 import re
 from typing import Any
 
+from typing import Literal
+
 from fastmcp.exceptions import ToolError
+from google.ads.googleads.errors import GoogleAdsException
+from pydantic import BaseModel, Field
 
 from ads_mcp import propose_and_confirm as pac
 import ads_mcp.utils as utils
@@ -91,6 +95,149 @@ def search_rows(customer_id: str, query: str) -> list[Any]:
     return list(service.search(customer_id=customer_id, query=query))
 
 
+class ChangeItemOut(BaseModel):
+    """One field a write changes, as the person reviews it."""
+
+    operation: str = Field(description="CREATE, UPDATE or REMOVE.")
+    entity: str = Field(
+        description="What changes (Campaign, Ad group, Keyword...)."
+    )
+    key: str = Field(description="Which one: its id or name.")
+    field: str = Field(default="", description="The field that changes.")
+    value: str = Field(default="", description="Its new value.")
+    before: str | None = Field(
+        default=None, description="Its value now, when known."
+    )
+
+
+class MutationResult(BaseModel):
+    """The answer of every write tool: a validated proposal, or what was applied."""
+
+    status: Literal["PROPOSED", "APPLIED"] = Field(
+        description="PROPOSED: Google validated it, nothing changed yet. APPLIED: it is live."
+    )
+    customer_id: str
+    checksum: str | None = Field(
+        default=None,
+        description="PROPOSED only: pass it back with validate_only=false and the same arguments to apply.",
+    )
+    change_items: list[ChangeItemOut] = Field(default_factory=list)
+    resource_names: list[str] = Field(
+        default_factory=list,
+        description="APPLIED only: the Google Ads resources created or changed.",
+    )
+    next_step: str = Field(description="What to do next.")
+
+
+ELICIT_KEY = "confirm"
+_CAPS_META = "io.modelcontextprotocol/clientCapabilities"
+
+
+def _items_out(items: Sequence[pac.ChangeItem]) -> list[ChangeItemOut]:
+    return [
+        ChangeItemOut(
+            operation=i.operation,
+            entity=i.entity_readable,
+            key=i.primary_key_readable,
+            field=i.field_readable,
+            value=i.value_readable,
+            before=i.original_value_readable or None,
+        )
+        for i in items
+    ]
+
+
+def client_can_elicit(ctx: Any) -> bool:
+    """The 2026-07-28 client declared form elicitation on this request (multi round-trip, SEP-2322)."""
+    if ctx is None:
+        return False
+    try:
+        rc = ctx.request_context
+        if rc is None or not ctx._is_modern_protocol():
+            return False
+        meta = rc.meta
+        meta = (
+            meta.model_dump(by_alias=True)
+            if hasattr(meta, "model_dump")
+            else (meta or {})
+        )
+        caps = meta.get(_CAPS_META) or {}
+        return bool(caps.get("elicitation"))
+    except Exception:  # an older FastMCP or no request: no elicitation
+        return False
+
+
+def _accepted(ctx: Any, expected: str) -> bool:
+    """The person accepted this exact change in the client's form (its state is our checksum)."""
+    try:
+        responses = ctx.input_responses or {}
+        answer = responses.get(ELICIT_KEY)
+        content = getattr(answer, "content", None) or {}
+        return (
+            getattr(answer, "action", None) == "accept"
+            and content.get("confirm") is True
+            and ctx.request_state == expected
+        )
+    except Exception:
+        return False
+
+
+def _ask(summary: str, checksum: str):
+    from fastmcp.tools import InputRequiredToolResult
+    from mcp import types as mcp_types
+
+    request = mcp_types.ElicitRequest(
+        method="elicitation/create",
+        params=mcp_types.ElicitRequestFormParams(
+            mode="form",
+            message=summary,
+            requested_schema={
+                "type": "object",
+                "properties": {
+                    "confirm": {
+                        "type": "boolean",
+                        "title": "Apply this change in Google Ads",
+                    }
+                },
+                "required": ["confirm"],
+            },
+        ),
+    )
+    return InputRequiredToolResult(
+        mcp_types.InputRequiredResult(
+            input_requests={ELICIT_KEY: request}, request_state=checksum
+        )
+    )
+
+
+def _summary(
+    tool: str, customer_id: str, items: Sequence[pac.ChangeItem]
+) -> str:
+    lines = [
+        f"{i.operation} {i.entity_readable} {i.primary_key_readable}"
+        + (
+            f": {i.field_readable} = {i.value_readable}"
+            if i.field_readable
+            else ""
+        )
+        for i in items[:20]
+    ]
+    more = f"\n... and {len(items) - 20} more" if len(items) > 20 else ""
+    return (
+        f"{tool} in Google Ads account {customer_id}:\n"
+        + "\n".join(lines)
+        + more
+    )
+
+
+def _fail(tool: str, exc: Exception) -> ToolError:
+    if isinstance(exc, GoogleAdsException):
+        return ToolError(
+            f"{tool} was refused by Google:\n{utils.format_google_ads_error(exc)}"
+        )
+    return ToolError(f"{tool} failed: {exc}")
+
+
 def mutate(
     *,
     tool: str,
@@ -98,14 +245,18 @@ def mutate(
     payload: dict[str, Any],
     operations: Callable[[Any], list[Any]],
     change_items: Sequence[pac.ChangeItem],
-    describe: Callable[[Any], str],
     validate_only: bool,
     checksum: str | None,
-) -> str:
-    """Builds the Mutate request and runs it through propose and confirm.
+    ctx: Any = None,
+):
+    """Builds ONE atomic Mutate request and runs it through propose and confirm.
 
-    ``operations(client)`` returns the MutateOperation list; the checksum binds
-    ``customer_id`` and ``payload`` (the tool's normalised arguments).
+    - validate_only=True (default): Google validates it (nothing changes); the answer is PROPOSED with a checksum.
+    - validate_only=False + the checksum: applied.
+    - validate_only=False without a checksum, on a client that declared form elicitation: Google validates it, the
+      person is asked in the client's form (an input_required result), and the retry with their acceptance applies
+      it. Any other client gets the two-step above.
+    The checksum binds ``customer_id`` and ``payload`` (the tool's normalised arguments).
     """
     ga_client = client()
     service = utils.get_googleads_service_from_client(
@@ -114,24 +265,57 @@ def mutate(
     request = ga_client.get_type("MutateGoogleAdsRequest")
     request.customer_id = customer_id
     request.mutate_operations.extend(operations(ga_client))
+    expected = pac.compute_checksum(customer_id, {"tool": tool, **payload})
+    items = _items_out(change_items)
 
     def _validate() -> None:
         request.validate_only = True
-        service.mutate(request=request)
+        try:
+            service.mutate(request=request)
+        except Exception as exc:
+            raise _fail(tool, exc) from exc
 
-    def _commit() -> str:
+    def _commit() -> MutationResult:
         request.validate_only = False
-        return describe(service.mutate(request=request))
+        try:
+            response = service.mutate(request=request)
+        except Exception as exc:
+            raise _fail(tool, exc) from exc
+        return MutationResult(
+            status="APPLIED",
+            customer_id=customer_id,
+            change_items=items,
+            resource_names=resource_names(response),
+            next_step="Done. Read it back with search to confirm, or report the change to the person.",
+        )
 
-    return pac.propose_and_confirm(
-        customer_id=customer_id,
-        validate_only=validate_only,
-        checksum=checksum,
-        operation_payload={"tool": tool, **payload},
-        change_items=change_items,
-        validate_fn=_validate,
-        commit_fn=_commit,
-        error_prefix=f"Failed to run {tool}",
+    if validate_only:
+        _validate()
+        return MutationResult(
+            status="PROPOSED",
+            customer_id=customer_id,
+            checksum=expected,
+            change_items=items,
+            next_step=(
+                "Nothing changed yet. Show change_items to the person; after they approve, call this tool again "
+                "with the same arguments, validate_only=false and this checksum."
+            ),
+        )
+    if checksum:
+        problem = pac.verify_checksum(
+            customer_id, None, checksum, expected_checksum=expected
+        )
+        if problem:
+            raise ToolError(problem)
+        return _commit()
+    if _accepted(ctx, expected):
+        return _commit()
+    if client_can_elicit(ctx):
+        _validate()
+        return _ask(_summary(tool, customer_id, change_items), expected)
+    raise ToolError(
+        "A change needs the person's approval first: call with validate_only=true, show the change_items, then "
+        "call again with validate_only=false and the checksum."
     )
 
 
@@ -147,9 +331,3 @@ def resource_names(response: Any) -> list[str]:
         if name:
             names.append(name)
     return names
-
-
-def applied(response: Any, verb: str) -> str:
-    names = resource_names(response)
-    listed = "\n".join(f"- {n}" for n in names)
-    return f"Applied: {verb} ({len(names)}).\n{listed}".rstrip()

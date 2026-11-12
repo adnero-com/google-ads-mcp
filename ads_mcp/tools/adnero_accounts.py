@@ -17,6 +17,7 @@
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
@@ -32,18 +33,58 @@ _QUERY = (
     "WHERE customer_client.level <= {depth}"
 )
 
+MAX_PAGE = 200
 
-@accounts_mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+
+class ClientAccount(BaseModel):
+    customer_id: str = Field(
+        description="Pass it as customer_id to every other tool."
+    )
+    name: str
+    currency: str = Field(
+        description="ISO 4217; money fields are micros of it."
+    )
+    time_zone: str
+    manager: bool = Field(
+        description="A sub-manager (its own clients are one level deeper)."
+    )
+    status: str = Field(description="ENABLED, CANCELED, SUSPENDED, CLOSED.")
+    level: int = Field(description="1: a direct client of the manager.")
+
+
+class ClientAccounts(BaseModel):
+    manager_id: str
+    accounts: list[ClientAccount]
+    next_page_token: str | None = Field(
+        default=None,
+        description="More accounts: call again with this page_token (free: no new operation is counted by us).",
+    )
+
+
+@accounts_mcp.tool(
+    title="List the client accounts under the manager (MCC)",
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
 def list_clients(
-    manager_id: str | int | None = None, depth: int = 1
-) -> list[dict]:
-    """Lists the accounts under a manager (MCC) account: id, name, currency, time zone, status.
+    manager_id: str | int | None = None,
+    depth: int = 1,
+    page_size: int = 100,
+    page_token: str | None = None,
+) -> ClientAccounts:
+    """Lists the Google Ads accounts under a manager (MCC): id, name, currency, time zone, status.
 
-    Use it to find the `customer_id` for every other tool. One operation.
+    Start here: every other tool needs a `customer_id` from this list. Costs 1 Google Ads operation per call.
 
     Args:
-        manager_id: The manager account. None: the manager this connection signed in through.
-        depth: 1 (default) lists direct clients; up to 3 goes deeper.
+        manager_id: The manager account. Omit it: the manager this connection signed in through.
+        depth: 1 (default) lists direct clients; up to 3 goes deeper into sub-managers.
+        page_size: Accounts per page, 1 to 200 (default 100).
+        page_token: The next_page_token of the previous page.
     """
     manager = (
         utils.clean_customer_id(manager_id)
@@ -54,22 +95,31 @@ def list_clients(
     )
     if not manager:
         raise ToolError(
-            "Error: no manager account. Pass 'manager_id', or pick a manager "
-            "for this Google login in AdHive (Connections)."
+            "No manager account: pass manager_id, or pick a manager for this "
+            "Google login in AdHive (Connections → Google)."
         )
     if not 1 <= int(depth) <= 3:
-        raise ToolError("Error: 'depth' is 1 to 3.")
+        raise ToolError("depth must be 1, 2 or 3.")
+    if not 1 <= int(page_size) <= MAX_PAGE:
+        raise ToolError(f"page_size must be 1 to {MAX_PAGE}.")
+    start = int(page_token) if page_token and page_token.isdigit() else 0
     rows = m.search_rows(manager, _QUERY.format(depth=int(depth)))
-    return [
-        {
-            "customer_id": str(r.customer_client.id),
-            "name": r.customer_client.descriptive_name,
-            "currency": r.customer_client.currency_code,
-            "time_zone": r.customer_client.time_zone,
-            "manager": bool(r.customer_client.manager),
-            "status": r.customer_client.status.name,
-            "level": int(r.customer_client.level),
-        }
+    accounts = [
+        ClientAccount(
+            customer_id=str(r.customer_client.id),
+            name=r.customer_client.descriptive_name,
+            currency=r.customer_client.currency_code,
+            time_zone=r.customer_client.time_zone,
+            manager=bool(r.customer_client.manager),
+            status=r.customer_client.status.name,
+            level=int(r.customer_client.level),
+        )
         for r in rows
         if not r.customer_client.hidden and int(r.customer_client.level) > 0
     ]
+    end = start + int(page_size)
+    return ClientAccounts(
+        manager_id=manager,
+        accounts=accounts[start:end],
+        next_page_token=str(end) if end < len(accounts) else None,
+    )

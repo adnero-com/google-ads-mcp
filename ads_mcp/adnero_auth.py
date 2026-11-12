@@ -146,7 +146,8 @@ class OpsLeftMiddleware(Middleware):
     async def on_call_tool(self, context, call_next):
         result = await call_next(context)
         note = ops_left_note()
-        if note is None:
+        # An input_required leg carries no content by contract (SEP-2322).
+        if note is None or type(result).__name__ == "InputRequiredToolResult":
             return result
         return result.model_copy(
             update={
@@ -158,6 +159,29 @@ class OpsLeftMiddleware(Middleware):
         )
 
 
+INSTRUCTIONS = """Google Ads, through the person's Google login in AdHive (their manager account, MCC).
+
+Start with accounts_list_clients: it lists the accounts under the manager; every other tool takes one of them as
+customer_id. Money is in micros of the account currency (10 EUR = 10000000).
+
+Read with search_search (GAQL; metadata_get_resource_metadata lists a resource's fields). One search is ONE
+operation however many rows it returns, and this app has a daily operations budget (each result ends with what is
+left): prefer one search over many small ones. Ready queries:
+- campaigns: SELECT campaign.id, campaign.name, campaign.status, campaign_budget.amount_micros, metrics.cost_micros,
+  metrics.conversions FROM campaign WHERE segments.date DURING LAST_7_DAYS
+- ad groups: SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, campaign.id FROM ad_group
+- ads: SELECT ad_group_ad.ad.id, ad_group_ad.status, ad_group.id, ad_group_ad.ad.final_urls FROM ad_group_ad
+- keywords: SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text,
+  ad_group_criterion.keyword.match_type, ad_group_criterion.status, ad_group.id FROM keyword_view
+- assets: SELECT asset.id, asset.name, asset.type FROM asset
+- conversions: SELECT conversion_action.id, conversion_action.name, conversion_action.status FROM conversion_action
+
+Change with the campaigns_* and keywords_* tools. Every change is previewed first (validate_only=true: Google
+checks it, nothing changes) and applied only after the person approves (validate_only=false with the checksum).
+New campaigns, ad groups and ads are always created PAUSED; turning them on is campaigns_set_status. Ads and
+keywords are named 'adGroupId~id'."""
+
+
 def build_app(server):
     """The ASGI app: stateless Streamable HTTP at /mcp, /healthz, the key check."""
     from starlette.middleware import Middleware as AsgiMiddleware
@@ -167,6 +191,8 @@ def build_app(server):
     async def _healthz(_request):
         return JSONResponse({"ok": True})
 
+    if not getattr(server, "instructions", None):
+        server.instructions = INSTRUCTIONS
     server.add_middleware(OpsLeftMiddleware())
     return server.http_app(
         path="/mcp",

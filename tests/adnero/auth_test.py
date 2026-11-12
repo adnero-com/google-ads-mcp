@@ -133,7 +133,8 @@ class MultiTenantTest(unittest.TestCase):
             ) as s:
                 out = adnero_accounts.list_clients()
         self.assertEqual(s.call_args.args[0], "5550001111")
-        self.assertEqual([a["customer_id"] for a in out], ["11"])
+        self.assertEqual([a.customer_id for a in out.accounts], ["11"])
+        self.assertIsNone(out.next_page_token)
 
 
 class ToolSetTest(unittest.TestCase):
@@ -142,8 +143,10 @@ class ToolSetTest(unittest.TestCase):
         # sub-servers, which upstream's own tests must not see.
         script = (
             "import asyncio, json; from ads_mcp.coordinator import mcp; "
-            "print(json.dumps(sorted(t.name for t in "
-            "asyncio.run(mcp.list_tools()))))"
+            "print(json.dumps([{'name': t.name, 'title': t.title, "
+            "'annotations': t.annotations.model_dump(exclude_none=True, by_alias=True) if t.annotations else {}, "
+            "'outputSchema': t.output_schema, 'inputSchema': t.parameters} "
+            "for t in asyncio.run(mcp.list_tools())]))"
         )
         env = {**os.environ, "GOOGLE_ADS_MCP_TOOLS_CONFIG": CONFIG}
         env.pop("ADNERO_MULTI_TENANT", None)
@@ -154,8 +157,26 @@ class ToolSetTest(unittest.TestCase):
             text=True,
             check=True,
         )
-        names = json.loads(out.stdout.strip().splitlines()[-1])
-        self.assertEqual(names, EXPECTED_TOOLS)
+        tools = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertEqual(sorted(t["name"] for t in tools), EXPECTED_TOOLS)
+        ours = [
+            t
+            for t in tools
+            if t["name"].split("_")[0] in ("accounts", "campaigns", "keywords")
+        ]
+        for t in ours:
+            # The quality bar (ADR 0014): a title, all four hints, an output schema.
+            self.assertTrue(t["title"], t["name"])
+            hints = t["annotations"]
+            for h in (
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ):
+                self.assertIn(h, hints, t["name"])
+            self.assertTrue(t["outputSchema"], t["name"])
+            self.assertNotIn("ctx", t["inputSchema"]["properties"], t["name"])
 
 
 if __name__ == "__main__":
