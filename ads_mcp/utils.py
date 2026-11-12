@@ -132,7 +132,16 @@ def _get_login_customer_id(
 ) -> str | None:
     """Returns login customer id, if set, from the parameter or the environment variable GOOGLE_ADS_LOGIN_CUSTOMER_ID."""
     if adnero_auth.enabled():
-        return adnero_auth.login_customer_id()
+        # The header wins (set by the gateway or the client), then the tool's argument.
+        header = adnero_auth.login_customer_id()
+        if header:
+            return header
+        argument = (
+            clean_customer_id(login_customer_id)
+            if login_customer_id is not None
+            else ""
+        )
+        return argument or None
     resolved_login_customer_id = (
         login_customer_id
         if login_customer_id is not None

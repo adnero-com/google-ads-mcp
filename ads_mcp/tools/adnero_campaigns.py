@@ -96,6 +96,7 @@ def set_status(
     status: Status,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Pauses or turns on campaigns, ad groups, ads or keywords (one level per call).
@@ -114,7 +115,9 @@ def set_status(
         status: PAUSED or ENABLED.
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     lvl, st = _value(level), _value(status)
     if lvl not in _LEVELS or st not in ("PAUSED", "ENABLED"):
@@ -183,6 +186,7 @@ def set_budget(
     daily_budget_micros: int,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Sets a campaign's daily budget (its own budget; a shared budget is refused).
@@ -200,7 +204,9 @@ def set_budget(
         daily_budget_micros: New average daily budget in micros of the account currency (10 EUR = 10000000).
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     camp = m.plain_id(campaign_id, "campaign_id")
     amount = m.non_negative_micros(daily_budget_micros, "daily_budget_micros")
@@ -258,6 +264,7 @@ def set_bids(
     target_roas: float | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Sets bids on an ad group (max CPC, target CPA, target ROAS) or a keyword (max CPC).
@@ -278,7 +285,9 @@ def set_bids(
         target_roas: Ad group target ROAS as a ratio (3.5 = 350%).
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     lvl = _value(level)
     if lvl not in ("AD_GROUP", "KEYWORD"):
@@ -354,6 +363,7 @@ def create(
     end_date_time: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Creates a Search campaign with its own daily budget, always PAUSED.
@@ -378,7 +388,9 @@ def create(
         end_date_time: 'yyyy-MM-dd HH:mm:ss'; None: no end.
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     if not name.strip():
         raise ToolError("Error: 'name' is required.")
@@ -501,6 +513,7 @@ def create_ad_group(
     cpc_bid_micros: int | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Creates a Search ad group in an existing campaign, PAUSED.
@@ -519,7 +532,9 @@ def create_ad_group(
         cpc_bid_micros: Optional max CPC in micros.
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     camp = m.plain_id(campaign_id, "campaign_id")
     if not name.strip():
@@ -574,6 +589,7 @@ def create_ad(
     path2: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Creates a responsive search ad in an existing ad group, PAUSED.
@@ -595,7 +611,9 @@ def create_ad(
         path2: Optional second display path part (15 characters).
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     group = m.plain_id(ad_group_id, "ad_group_id")
     if not 3 <= len(headlines) <= 15 or not 2 <= len(descriptions) <= 4:

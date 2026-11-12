@@ -23,6 +23,7 @@ CONFIG = os.path.join(
 # (packages/mcp-gateway); change both together.
 EXPECTED_TOOLS = sorted(
     [
+        "accounts_list_accessible",
         "accounts_list_clients",
         "assets_create_asset",
         "campaigns_create",
@@ -69,7 +70,10 @@ class MultiTenantTest(unittest.TestCase):
             self.assertFalse(adnero_auth.secret_ok(""))
 
     def test_credentials_come_from_the_request(self):
-        with headers(x_google_ads_access_token="ya29.abc"):
+        with headers(
+            x_google_ads_mcp_secret="k" * 32,
+            x_google_ads_access_token="ya29.abc",
+        ):
             creds = utils._create_credentials()
         self.assertEqual(creds.token, "ya29.abc")
 
@@ -84,7 +88,8 @@ class MultiTenantTest(unittest.TestCase):
         with headers(x_google_ads_login_customer_id="111-222-3333"):
             self.assertEqual(utils._get_login_customer_id("999"), "1112223333")
         with headers():
-            self.assertIsNone(utils._get_login_customer_id("999"))
+            self.assertEqual(utils._get_login_customer_id("999"), "999")
+            self.assertIsNone(utils._get_login_customer_id(None))
 
     def test_ops_left_note(self):
         with headers(x_google_ads_ops_left="2700/2880"):
@@ -100,7 +105,8 @@ class MultiTenantTest(unittest.TestCase):
         with TestClient(app) as http:
             health = http.get("/healthz")
             self.assertEqual(health.status_code, 200)
-            self.assertEqual(health.json(), {"ok": True, "configured": True})
+            self.assertEqual(health.json(), {"ok": True, "configured": True, "bearer": False},
+            )
             body = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
             accept = {"accept": "application/json, text/event-stream"}
             self.assertEqual(

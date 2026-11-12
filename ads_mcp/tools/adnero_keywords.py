@@ -72,6 +72,7 @@ def add(
     cpc_bid_micros: int | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Adds keywords to an ad group, or negative keywords to an ad group or a campaign.
@@ -92,7 +93,9 @@ def add(
         cpc_bid_micros: Optional max CPC for positive keywords.
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     words = _keywords(keywords)
     if (ad_group_id is None) == (campaign_id is None):
@@ -179,6 +182,7 @@ def remove(
     ids: list[str],
     validate_only: bool = True,
     checksum: str | None = None,
+    login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Removes keywords (positive or negative) from ad groups, or negatives from campaigns.
@@ -196,7 +200,9 @@ def remove(
         ids: The keywords' composite ids.
         validate_only: True (default) previews; False applies (needs `checksum`).
         checksum: From the preview.
+        login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
+    m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     lvl = level.value if isinstance(level, Enum) else str(level).upper()
     if lvl not in KeywordLevel.__members__:

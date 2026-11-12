@@ -22,6 +22,7 @@ and the same arguments applies it.
 """
 
 from collections.abc import Callable, Sequence
+import contextvars
 import re
 from typing import Any
 
@@ -85,13 +86,30 @@ def non_negative_micros(value: int | None, what: str) -> int | None:
     return value
 
 
+# The manager (MCC) a tool call goes through, set per call by use_login (each call
+# runs in its own context, so concurrent calls never see each other's value).
+_LOGIN: contextvars.ContextVar[str | int | None] = contextvars.ContextVar(
+    "adnero_login_customer_id", default=None
+)
+
+
+def use_login(login_customer_id: str | int | None) -> None:
+    """Sets the manager account for the Google clients this tool call builds."""
+    _LOGIN.set(login_customer_id)
+
+
 def client():
-    return utils.get_googleads_client()
+    return utils.get_googleads_client(login_customer_id=_LOGIN.get())
 
 
-def search_rows(customer_id: str, query: str) -> list[Any]:
-    """One GAQL search (one operation), every row."""
-    service = utils.get_googleads_service("GoogleAdsService")
+def search_rows(
+    customer_id: str, query: str, login: str | int | None = None
+) -> list[Any]:
+    """One GAQL search (one operation), every row. `login` overrides the call's manager."""
+    service = utils.get_googleads_service(
+        "GoogleAdsService",
+        login_customer_id=login if login is not None else _LOGIN.get(),
+    )
     return list(service.search(customer_id=customer_id, query=query))
 
 

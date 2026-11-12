@@ -11,6 +11,6 @@ namespaces:
     enabled_tools:
       - create_asset: true
       - upload_video_asset: false
-  accounts: true
+  accounts: true  # list_clients, list_accessible
   campaigns: true
   keywords: true

@@ -28,14 +28,29 @@ gateway sets from its authorization answer:
 - ``x-google-ads-ops-left``: the Cloud project's operations left today, as
   ``<left>/<limit>``; echoed at the end of every tool result.
 
+Bearer mode (second way in, ``GOOGLE_ADS_MCP_PUBLIC_URL`` set): a remote MCP server with standard MCP OAuth.
+A request without the gateway's key may carry ``Authorization: Bearer <Google access token>``; the token is
+checked with Google's tokeninfo (the adwords scope, and the Cloud project when
+``GOOGLE_ADS_MCP_ALLOWED_PROJECTS`` is set) and is the token the tools use. A refused request gets a 401 with
+``WWW-Authenticate: Bearer resource_metadata=...`` pointing at ``/.well-known/oauth-protected-resource``.
+
 No Application Default Credentials, no developer token, no OAuth proxy, no
 token storage: the container holds no tenant secret.
 """
 
+import asyncio
+import collections
+import hashlib
 import hmac
+import json
 import logging
 import os
 import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
@@ -45,6 +60,16 @@ from mcp.types import TextContent
 MULTI_TENANT_ENV = "ADNERO_MULTI_TENANT"
 SHARED_SECRET_ENV = "GOOGLE_ADS_MCP_SHARED_SECRET"
 API_ENDPOINT_ENV = "GOOGLE_ADS_API_ENDPOINT"
+PUBLIC_URL_ENV = "GOOGLE_ADS_MCP_PUBLIC_URL"
+ALLOWED_PROJECTS_ENV = "GOOGLE_ADS_MCP_ALLOWED_PROJECTS"
+TOKENINFO_URL_ENV = "GOOGLE_ADS_TOKENINFO_URL"
+
+DEFAULT_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+ADWORDS_SCOPE = "https://www.googleapis.com/auth/adwords"
+TOKENINFO_TIMEOUT_S = 5
+POSITIVE_TTL_MAX_S = 3600
+NEGATIVE_TTL_S = 60
+CACHE_MAX = 10_000
 
 SECRET_HEADER = "x-google-ads-mcp-secret"
 TOKEN_HEADER = "x-google-ads-access-token"
@@ -52,6 +77,10 @@ LOGIN_CUSTOMER_HEADER = "x-google-ads-login-customer-id"
 OPS_LEFT_HEADER = "x-google-ads-ops-left"
 
 HEALTH_PATH = "/healthz"
+RESOURCE_METADATA_PATHS = (
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/mcp",
+)
 
 _OPS_LEFT = re.compile(r"^(\d+)/(\d+)$")
 
@@ -71,15 +100,31 @@ def _header(name: str) -> str:
     return get_http_headers(include={name}).get(name, "").strip()
 
 
+def _bearer_of(authorization: str | None) -> str:
+    """The token of an 'Authorization: Bearer <token>' value, else ''."""
+    parts = (authorization or "").strip().split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return ""
+
+
 def request_credentials():
-    """The caller's credential for this request; refuses a call without one."""
+    """The caller's credential for this request; refuses a call without one.
+
+    A valid gateway key makes the access-token header the Google token; otherwise it is the bearer
+    token (already checked by the middleware).
+    """
     from google.oauth2.credentials import Credentials
 
-    token = _header(TOKEN_HEADER)
+    if secret_ok(_header(SECRET_HEADER)):
+        token = _header(TOKEN_HEADER)
+    else:
+        token = _bearer_of(_header("authorization")) if bearer_enabled() else ""
     if not token:
         raise ToolError(
             "No Google login reaches this call. Connect Google in AdHive "
-            "(Connections) and pick the ads account, then try again."
+            "(Connections) and pick the ads account, or sign in with Google "
+            "when you connect to this server, then try again."
         )
     return Credentials(token=token)
 
@@ -109,14 +154,136 @@ def secret_ok(provided: str | None) -> bool:
     )
 
 
+def public_url() -> str | None:
+    """The public https URL of /mcp; set: bearer mode is on."""
+    value = os.environ.get(PUBLIC_URL_ENV, "").strip()
+    return value or None
+
+
+def bearer_enabled() -> bool:
+    return public_url() is not None
+
+
+def resource_metadata_url(url: str) -> str:
+    """origin + prefix + /.well-known/oauth-protected-resource (the last path segment is replaced)."""
+    parts = urllib.parse.urlsplit(url)
+    prefix = parts.path.rstrip("/").rsplit("/", 1)[0]
+    return f"{parts.scheme}://{parts.netloc}{prefix}{RESOURCE_METADATA_PATHS[0]}"
+
+
+def resource_metadata() -> dict:
+    return {
+        "resource": public_url(),
+        "authorization_servers": ["https://accounts.google.com"],
+        "scopes_supported": [ADWORDS_SCOPE],
+        "bearer_methods_supported": ["header"],
+    }
+
+
+def _allowed_projects() -> list[str]:
+    raw = os.environ.get(ALLOWED_PROJECTS_ENV, "")
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _now() -> float:
+    return time.time()
+
+
+# sha256(token) -> (valid, expires at). Never the token itself. Oldest entry out when full.
+_CACHE: "collections.OrderedDict[str, tuple[bool, float]]" = (
+    collections.OrderedDict()
+)
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(key: str) -> bool | None:
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        if entry is None:
+            return None
+        if entry[1] <= _now():
+            del _CACHE[key]
+            return None
+        return entry[0]
+
+
+def _cache_put(key: str, valid: bool, ttl: float) -> None:
+    with _CACHE_LOCK:
+        _CACHE.pop(key, None)
+        _CACHE[key] = (valid, _now() + ttl)
+        while len(_CACHE) > CACHE_MAX:
+            _CACHE.popitem(last=False)
+
+
+def _tokeninfo(token: str) -> tuple[int, dict]:
+    """(HTTP status, JSON body) of Google's tokeninfo; status 0 when unreachable. Never logs the token."""
+    base = os.environ.get(TOKENINFO_URL_ENV, "").strip() or DEFAULT_TOKENINFO_URL
+    url = f"{base}?{urllib.parse.urlencode({'access_token': token})}"
+    try:
+        with urllib.request.urlopen(url, timeout=TOKENINFO_TIMEOUT_S) as resp:
+            status, raw = resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        status, raw = exc.code, b""
+    except Exception:  # unreachable, timeout: the text could echo the URL, so say nothing of it
+        logging.getLogger(__name__).warning("tokeninfo unreachable")
+        return 0, {}
+    try:
+        body = json.loads(raw.decode("utf-8")) if raw else {}
+    except ValueError:
+        body = {}
+    return status, body if isinstance(body, dict) else {}
+
+
+def _judge(status: int, body: dict) -> bool:
+    if status != 200:
+        return False
+    if ADWORDS_SCOPE not in str(body.get("scope", "")).split():
+        return False
+    projects = _allowed_projects()
+    if projects:
+        aud = str(body.get("aud", ""))
+        return any(aud.startswith(f"{p}-") for p in projects)
+    return True
+
+
+def token_ok(token: str | None) -> bool:
+    """A Google access token with the adwords scope (and an allowed Cloud project, when configured)."""
+    if not token:
+        return False
+    key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+    status, body = _tokeninfo(token)
+    if status == 0 or status >= 500:
+        return False  # Google unreachable or failing: refuse, but do not remember it
+    valid = _judge(status, body)
+    if valid:
+        try:
+            left = float(body.get("exp", 0)) - _now()
+        except (TypeError, ValueError):
+            left = 0.0
+        ttl = min(left, POSITIVE_TTL_MAX_S)
+        if ttl > 0:
+            _cache_put(key, True, ttl)
+    else:
+        _cache_put(key, False, NEGATIVE_TTL_S)
+    return valid
+
+
 class SharedSecretMiddleware:
-    """ASGI: only the gateway may call (health checks excepted)."""
+    """ASGI: the gateway's key, or (bearer mode) a valid Google bearer token (health checks excepted)."""
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope.get("path") == HEALTH_PATH:
+        path = scope.get("path")
+        if (
+            scope["type"] != "http"
+            or path == HEALTH_PATH
+            or (bearer_enabled() and path in RESOURCE_METADATA_PATHS)
+        ):
             await self.app(scope, receive, send)
             return
         headers = {
@@ -126,11 +293,23 @@ class SharedSecretMiddleware:
         if secret_ok(headers.get(SECRET_HEADER)):
             await self.app(scope, receive, send)
             return
+        if bearer_enabled():
+            token = _bearer_of(headers.get("authorization"))
+            if token and await asyncio.to_thread(token_ok, token):
+                await self.app(scope, receive, send)
+                return
+        response_headers = [(b"content-type", b"application/json")]
+        url = public_url()
+        if url:
+            challenge = f'Bearer resource_metadata="{resource_metadata_url(url)}"'
+            response_headers.append(
+                (b"www-authenticate", challenge.encode("latin-1"))
+            )
         await send(
             {
                 "type": "http.response.start",
                 "status": 401,
-                "headers": [(b"content-type", b"application/json")],
+                "headers": response_headers,
             }
         )
         await send(
@@ -162,8 +341,10 @@ class OpsLeftMiddleware(Middleware):
 
 INSTRUCTIONS = """Google Ads, through the person's Google login in AdHive (their manager account, MCC).
 
-Start with accounts_list_clients: it lists the accounts under the manager; every other tool takes one of them as
-customer_id. Money is in micros of the account currency (10 EUR = 10000000).
+Start with accounts_list_accessible when no manager account is known: it lists every account this login can reach,
+and which ones work. Then accounts_list_clients lists the accounts under a manager; every other tool takes one of
+them as customer_id. When an account is reached through a manager, pass that manager as login_customer_id (every
+tool takes it; the connection's own manager wins when it has one). Money is in micros of the account currency (10 EUR = 10000000).
 
 Read with search_search (GAQL; metadata_get_resource_metadata lists a resource's fields). One search is ONE
 operation however many rows it returns, and this app has a daily operations budget (each result ends with what is
@@ -194,8 +375,20 @@ def build_app(server):
         # tool call is refused until GOOGLE_ADS_MCP_SHARED_SECRET is set (the gateway never offers the
         # target to a workspace without a Google login anyway).
         return JSONResponse(
-            {"ok": True, "configured": bool(os.environ.get(SHARED_SECRET_ENV))}
+            {
+                "ok": True,
+                "configured": bool(os.environ.get(SHARED_SECRET_ENV)),
+                "bearer": bearer_enabled(),
+            }
         )
+
+    if bearer_enabled():
+
+        async def _resource_metadata(_request):
+            return JSONResponse(resource_metadata())
+
+        for path in RESOURCE_METADATA_PATHS:
+            server.custom_route(path, methods=["GET"])(_resource_metadata)
 
     if not getattr(server, "instructions", None):
         server.instructions = INSTRUCTIONS
@@ -211,7 +404,7 @@ def serve(server) -> None:
     import uvicorn
 
     port = int(os.environ.get("PORT", "8080"))
-    if not os.environ.get(SHARED_SECRET_ENV):
+    if not os.environ.get(SHARED_SECRET_ENV) and not bearer_enabled():
         logging.getLogger(__name__).warning(
             "%s is not set: not configured, every tool call is refused",
             SHARED_SECRET_ENV,

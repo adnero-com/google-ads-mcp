@@ -15,12 +15,33 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   - There is no ADC, no OAuth proxy, no token store and no developer token
     (developer tokens were sunset on 2026-09-09).
   - Tool results end with the ops left today (`x-google-ads-ops-left`).
+- Bearer mode, a second way in as a remote MCP server (standard MCP OAuth). It is off unless
+  `GOOGLE_ADS_MCP_PUBLIC_URL` is set; the gateway mode above is unchanged.
+  - A request is accepted with the gateway key, or with `Authorization: Bearer <Google access token>`. The Google
+    token the tools use is `x-google-ads-access-token` when the key was valid, otherwise the bearer token.
+  - The bearer token is checked against Google's tokeninfo (5 s timeout): HTTP 200 and the
+    `https://www.googleapis.com/auth/adwords` scope. Answers are cached by sha256 of the token (never the token):
+    a good one until its `exp` (at most 1 h), a refused one for 60 s, at most 10k entries. A tokeninfo outage
+    refuses the request and is not cached. Tokens are never logged.
+  - A refused request gets a 401 with `WWW-Authenticate: Bearer resource_metadata="<origin + prefix +
+    /.well-known/oauth-protected-resource>"` (the public URL with its last path segment replaced). The app itself
+    sees `/mcp` and `/.well-known/...`: the reverse proxy strips the public prefix.
+  - `GET /.well-known/oauth-protected-resource` (and `.../mcp`) is public and returns the resource, Google as
+    authorization server and the adwords scope. `/healthz` also reports `"bearer": bool`.
+  - Env: `GOOGLE_ADS_MCP_PUBLIC_URL` (e.g. `https://xhfti.com/mcp-hosted/google-ads/mcp`; unset: bearer off, no
+    well-known routes), `GOOGLE_ADS_MCP_ALLOWED_PROJECTS` (comma-separated Cloud project numbers; when set, the
+    token's `aud` client id must start with one of them followed by `-`), `GOOGLE_ADS_TOKENINFO_URL` (overrides
+    `https://oauth2.googleapis.com/tokeninfo`, for tests and e2e).
+- `login_customer_id`: in multi-tenant mode the header `x-google-ads-login-customer-id` wins, else the tool's
+  `login_customer_id` argument (digits only), else none. Every `accounts_*`, `campaigns_*` and `keywords_*` tool
+  takes it (`adnero_mutate.use_login` sets it per call).
 - Hook lines in upstream files, to keep when rebasing:
   `utils._create_credentials`, `utils._get_login_customer_id`,
   `utils._get_googleads_client` (endpoint) and `server.run_server`.
 - New tools, each in its own module and namespace, using upstream's propose and
   confirm (`validate_only` + `checksum`). Everything new is created PAUSED.
-  - `accounts`: `list_clients`
+  - `accounts`: `list_accessible` (every account the login can reach, each marked usable or not; 1 operation per
+    account, at most 50), `list_clients`
   - `campaigns`: `set_status`, `set_budget`, `set_bids`, `create`,
     `create_ad_group`, `create_ad`
   - `keywords`: `add`, `remove`
@@ -33,7 +54,7 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   `validate_only=false` and no checksum, a client that declared form elicitation is asked through an
   `input_required` result (SEP-2322). Google validates the change first, and the retry applies it only with the
   person's acceptance and our checksum as `requestState`. Every other client gets the two-step flow.
-- The server instructions are set in multi-tenant mode: where to start, ready GAQL queries, the ops budget and the
+- The server instructions are set in multi-tenant mode: where to start (`accounts_list_accessible` first), ready GAQL queries, the ops budget and the
   approval flow.
 - `ads_mcp/adnero_tools_config.yaml` (the tool set) and `Dockerfile.adnero`.
 - Tests: `tests/adnero/`.
