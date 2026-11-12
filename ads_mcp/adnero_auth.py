@@ -33,6 +33,7 @@ token storage: the container holds no tenant secret.
 """
 
 import hmac
+import logging
 import os
 import re
 
@@ -189,7 +190,12 @@ def build_app(server):
 
     @server.custom_route(HEALTH_PATH, methods=["GET"])
     async def _healthz(_request):
-        return JSONResponse({"ok": True})
+        # Healthy either way, so a stack without the key still deploys; "configured" false means every
+        # tool call is refused until GOOGLE_ADS_MCP_SHARED_SECRET is set (the gateway never offers the
+        # target to a workspace without a Google login anyway).
+        return JSONResponse(
+            {"ok": True, "configured": bool(os.environ.get(SHARED_SECRET_ENV))}
+        )
 
     if not getattr(server, "instructions", None):
         server.instructions = INSTRUCTIONS
@@ -205,4 +211,9 @@ def serve(server) -> None:
     import uvicorn
 
     port = int(os.environ.get("PORT", "8080"))
+    if not os.environ.get(SHARED_SECRET_ENV):
+        logging.getLogger(__name__).warning(
+            "%s is not set: not configured, every tool call is refused",
+            SHARED_SECRET_ENV,
+        )
     uvicorn.run(build_app(server), host="0.0.0.0", port=port, access_log=False)

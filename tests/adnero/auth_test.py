@@ -98,7 +98,9 @@ class MultiTenantTest(unittest.TestCase):
     def test_http_needs_the_gateway_key(self):
         app = adnero_auth.build_app(FastMCP("t"))
         with TestClient(app) as http:
-            self.assertEqual(http.get("/healthz").status_code, 200)
+            health = http.get("/healthz")
+            self.assertEqual(health.status_code, 200)
+            self.assertEqual(health.json(), {"ok": True, "configured": True})
             body = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
             accept = {"accept": "application/json, text/event-stream"}
             self.assertEqual(
