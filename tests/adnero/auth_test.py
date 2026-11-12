@@ -25,6 +25,8 @@ EXPECTED_TOOLS = sorted(
     [
         "accounts_list_accessible",
         "accounts_list_clients",
+        "api_mutate",
+        "api_read",
         "assets_create_asset",
         "campaigns_create",
         "campaigns_create_ad",
@@ -170,7 +172,8 @@ class ToolSetTest(unittest.TestCase):
         ours = [
             t
             for t in tools
-            if t["name"].split("_")[0] in ("accounts", "campaigns", "keywords")
+            if t["name"].split("_")[0]
+            in ("accounts", "api", "campaigns", "keywords")
         ]
         for t in ours:
             # The quality bar (ADR 0014): a title, all four hints, an output schema.

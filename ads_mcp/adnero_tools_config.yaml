@@ -14,3 +14,4 @@ namespaces:
   accounts: true  # list_clients, list_accessible
   campaigns: true
   keywords: true
+  api: true  # read, mutate (raw REST passthrough under one customer)

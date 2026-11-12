@@ -63,6 +63,12 @@ API_ENDPOINT_ENV = "GOOGLE_ADS_API_ENDPOINT"
 PUBLIC_URL_ENV = "GOOGLE_ADS_MCP_PUBLIC_URL"
 ALLOWED_PROJECTS_ENV = "GOOGLE_ADS_MCP_ALLOWED_PROJECTS"
 TOKENINFO_URL_ENV = "GOOGLE_ADS_TOKENINFO_URL"
+API_VERSION_ENV = "GOOGLE_ADS_API_VERSION"
+
+# Google Ads API major version every client and REST call uses. Minor releases (v26.2...) are served on the
+# same major endpoint, so only the major is pinned here.
+DEFAULT_API_VERSION = "v26"
+_API_VERSION = re.compile(r"^v\d{2}$")
 
 DEFAULT_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 ADWORDS_SCOPE = "https://www.googleapis.com/auth/adwords"
@@ -94,6 +100,22 @@ def api_endpoint() -> str | None:
     """A stub Google Ads API (tests, e2e); unset: the real API."""
     value = os.environ.get(API_ENDPOINT_ENV, "").strip()
     return value or None
+
+
+def api_version() -> str:
+    """The Google Ads API version ('v26'): GOOGLE_ADS_API_VERSION when it looks like 'vNN', else the default."""
+    value = os.environ.get(API_VERSION_ENV, "").strip()
+    if not value:
+        return DEFAULT_API_VERSION
+    if not _API_VERSION.match(value):
+        logging.getLogger(__name__).warning(
+            "%s=%r is not a version like 'v26'; using %s",
+            API_VERSION_ENV,
+            value[:20],
+            DEFAULT_API_VERSION,
+        )
+        return DEFAULT_API_VERSION
+    return value
 
 
 def _header(name: str) -> str:
@@ -359,7 +381,12 @@ left): prefer one search over many small ones. Ready queries:
 Change with the campaigns_* and keywords_* tools. Every change is previewed first (validate_only=true: Google
 checks it, nothing changes) and applied only after the person approves (validate_only=false with the checksum).
 New campaigns, ad groups and ads are always created PAUSED; turning them on is campaigns_set_status. Ads and
-keywords are named 'adGroupId~id'."""
+keywords are named 'adGroupId~id'.
+
+When no typed tool covers a field, use the raw Google Ads REST API: api_read reads any resource of the account (GET
+under customers/{id}, or a googleAds:search POST), and api_mutate previews a raw '<resource>:mutate' body
+(validate_only=true, a checksum), then applies it with validate_only=false and that checksum after the person
+approves. It never removes: pause instead."""
 
 
 def build_app(server):

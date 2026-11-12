@@ -38,7 +38,8 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   takes it (`adnero_mutate.use_login` sets it per call).
 - Hook lines in upstream files, to keep when rebasing:
   `utils._create_credentials`, `utils._get_login_customer_id`,
-  `utils._get_googleads_client` (endpoint) and `server.run_server`.
+  `utils._get_googleads_client` (endpoint, version), `utils.get_googleads_service_from_client` (version),
+  `resources/discovery.py` (version) and `server.run_server`.
 - New tools, each in its own module and namespace, using upstream's propose and
   confirm (`validate_only` + `checksum`). Everything new is created PAUSED.
   - `accounts`: `list_accessible` (every account the login can reach, each marked usable or not; 1 operation per
@@ -46,6 +47,27 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   - `campaigns`: `set_status`, `set_budget`, `set_bids`, `create`,
     `create_ad_group`, `create_ad`
   - `keywords`: `add`, `remove`
+  - `api`: the raw Google Ads REST API, for fields no typed tool covers (`ads_mcp/tools/adnero_api.py`).
+    Both take `customer_id` and `login_customer_id`, call
+    `{GOOGLE_ADS_REST_BASE}/{GOOGLE_ADS_API_VERSION}/{path}` with `Authorization: Bearer <the request's Google
+    token>` and `login-customer-id` when one resolves (header > argument), 30 s timeout, no developer token; the
+    token and bodies are never logged. `path` is relative and must be `customers/{customer_id}` or under it for the
+    SAME customer_id: no URL, leading slash, version segment, `..`, `?`, `#`, `%`, at most 300 characters.
+    - `read` (`path`, `method` GET|POST, `body`): GET any path under the customer; POST only to
+      `googleAds:search` / `googleAds:searchStream`. Returns `{status, data}`; an answer over 200,000 characters of
+      JSON is cut (`truncated: true`, a hint to page or narrow). 1 operation.
+    - `mutate` (`path` = `customers/{id}/<camelCaseResource>:mutate`, `body` up to 60,000 characters of JSON,
+      `validate_only`, `checksum`): at most 100 operations; any `remove` key (or a status set to REMOVED) inside
+      the operations is refused. The preview sends `"validateOnly": true`; the checksum is sha256 of the canonical
+      JSON (sorted keys, `,`/`:` separators, UTF-8) of `{customer_id, path, body}`, the body without the caller's
+      `validateOnly`/`partialFailure` (they are never sent either: a write is atomic). Apply needs that checksum;
+      the SEP-2322 elicitation path works as for the other writes. Google's errors come back as its own message,
+      status and first errorCode (e.g. `AuthorizationError.CUSTOMER_NOT_ENABLED`).
+- API version: `GOOGLE_ADS_API_VERSION` (default `v26`, must match `^v\d{2}$`, else the default with a warning),
+  read by `adnero_auth.api_version()`; every `GoogleAdsClient`/`get_service`, the REST passthrough and the
+  discovery resource use it. Minor releases (v26.2) are served on the major's endpoint. `google-ads>=35.1.0,<36`.
+- `GOOGLE_ADS_REST_BASE`: the REST host for the `api` tools (default `https://googleads.googleapis.com`; tests and
+  e2e point it at a stub).
 - Our tools follow MCP 2026-07-28. Each one has:
   - a title and all four annotations;
   - a Pydantic output (an `outputSchema`, plus `structuredContent` with its JSON text);

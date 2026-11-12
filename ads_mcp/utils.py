@@ -158,6 +158,8 @@ def _get_googleads_client(
     args: dict[str, Any] = {
         "credentials": _create_credentials(),
         "use_proto_plus": True,
+        # One pinned API version for every service and type (GOOGLE_ADS_API_VERSION, default v26).
+        "version": adnero_auth.api_version(),
     }
 
     # If the developer-token is not set, avoid setting None.
@@ -183,7 +185,9 @@ def get_googleads_service_from_client(
 ) -> Any:
     """Returns a Google Ads service client with the MCP telemetry header attached."""
     return client.get_service(
-        service_name, interceptors=[MCPHeaderInterceptor()]
+        service_name,
+        version=adnero_auth.api_version(),
+        interceptors=[MCPHeaderInterceptor()],
     )
 
 

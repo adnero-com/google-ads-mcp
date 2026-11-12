@@ -16,6 +16,7 @@
 
 import urllib.request
 
+from ads_mcp import adnero_auth
 from ads_mcp.coordinator import mcp
 
 
@@ -37,7 +38,10 @@ def get_discovery_document() -> str:
     Returns:
         str: The discovery document in JSON format.
     """
-    url = "https://googleads.googleapis.com/$discovery/rest?version=v25"
+    url = (
+        "https://googleads.googleapis.com/$discovery/rest"
+        f"?version={adnero_auth.api_version()}"
+    )
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Mozilla/5.0"},
