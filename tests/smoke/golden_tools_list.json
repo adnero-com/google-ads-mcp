@@ -8,6 +8,184 @@
       },
       "annotations": {
         "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Adds a YouTube video (already on YouTube) as a YOUTUBE_VIDEO asset for App ads (up to 20 per ad).\n\nCosts 1 Google Ads operation on each call (the preview counts too).\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status\nPROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the checksum.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the preview."
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "The Google Ads account."
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The manager (MCC) account to call through."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional asset name."
+          },
+          "validate_only": {
+            "default": true,
+            "description": "True (default) previews; False applies (needs `checksum`).",
+            "type": "boolean"
+          },
+          "video": {
+            "description": "The 11-character video id, or a youtube.com / youtu.be / shorts URL.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "video"
+        ],
+        "type": "object"
+      },
+      "name": "assets_add_youtube",
+      "outputSchema": {
+        "description": "The answer of every write tool: a validated proposal, or what was applied.",
+        "properties": {
+          "change_items": {
+            "items": {
+              "description": "One field a write changes, as the person reviews it.",
+              "properties": {
+                "before": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Its value now, when known."
+                },
+                "entity": {
+                  "description": "What changes (Campaign, Ad group, Keyword...).",
+                  "type": "string"
+                },
+                "field": {
+                  "default": "",
+                  "description": "The field that changes.",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "Which one: its id or name.",
+                  "type": "string"
+                },
+                "operation": {
+                  "description": "CREATE, UPDATE or REMOVE.",
+                  "type": "string"
+                },
+                "value": {
+                  "default": "",
+                  "description": "Its new value.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operation",
+                "entity",
+                "key"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PROPOSED only: pass it back with validate_only=false and the same arguments to apply."
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "next_step": {
+            "description": "What to do next.",
+            "type": "string"
+          },
+          "resource_names": {
+            "description": "APPLIED only: the Google Ads resources created or changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "PROPOSED: Google validated it, nothing changed yet. APPLIED: it is live.",
+            "enum": [
+              "PROPOSED",
+              "APPLIED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "customer_id",
+          "next_step"
+        ],
+        "type": "object"
+      },
+      "title": "Add a YouTube video as an asset"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
         "readOnlyHint": false
       },
       "description": "Creates a new Google Ads asset under the specified customer account.\n\nRequired & Optional parameters per `asset_type`:\n- **TEXT**: Requires `text_asset_text`.\n- **IMAGE**: Requires either `image_asset_path` (absolute local path, local stdio mode only)\n  OR `image_asset_data` (base64 encoded string). If `image_asset_data` is provided,\n  `image_asset_mime_type` is also required (e.g. 'IMAGE_PNG', 'IMAGE_JPEG', 'IMAGE_GIF').\n- **YOUTUBE_VIDEO**: Requires `youtube_video_id`.\n- **SITELINK**: Requires `sitelink_link_text` and root-level `final_urls`.\n  Accepts optional `sitelink_description1` and `sitelink_description2`.\n- **CALLOUT**: Requires `callout_text`.\n- **STRUCTURED_SNIPPET**: Requires `structured_snippet_header` and `structured_snippet_values`.\n\nRoot-level URL and tracking configurations (optional except where noted):\n- `name`: Optional display name for the asset.\n- `final_urls`: Required for SITELINK. A list of URLs.\n- `final_mobile_urls`: List of mobile-specific destination URLs.\n- `tracking_url_template`: Template for constructing a tracking URL.\n- `final_url_suffix`: Suffix appended to the final URL.\n- `url_custom_parameters`: Custom parameters represented as a list of dicts (with 'key' and 'value').\n\nFor any other asset type, provide `extra_params` as a dict representing the sub-asset message fields.\n\nPropose & Confirm Workflow (`validate_only` and `checksum`):\n1. Call `create_asset` with `validate_only=True` (the default). After validation passes, the tool returns structured `change_items` and a `checksum` without committing changes.\n2. Present the `change_items` to the user and wait for explicit user approval.\n3. Only after user confirmation, call `create_asset` with `validate_only=False` along with the exact same parameters and the `checksum` returned by the previous `validate_only=True` call.",
@@ -324,6 +502,646 @@
         "x-fastmcp-wrap-result": true
       },
       "title": "Assets Create Asset"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Lists image, YouTube video and HTML5 assets: pixel size, App ratio class (1:1, 1.91:1, 4:5 or none),\nfile size, and where each is used (in ads, linked to campaigns or ad groups).\n\nCosts 4 Google Ads operations per call (the assets, then three usage searches for that page).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "IMAGE",
+                  "YOUTUBE_VIDEO",
+                  "MEDIA_BUNDLE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "IMAGE, YOUTUBE_VIDEO or MEDIA_BUNDLE; None: all three."
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "The Google Ads account."
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The manager (MCC) account to call through."
+          },
+          "max_rows": {
+            "default": 200,
+            "description": "Assets per page (default 200, max 10000).",
+            "type": "integer"
+          },
+          "page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the previous answer."
+          },
+          "unused": {
+            "default": false,
+            "description": "Only assets used nowhere (filtered per page: a page may hold fewer rows).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "assets_list",
+      "outputSchema": {
+        "properties": {
+          "assets": {
+            "items": {
+              "properties": {
+                "file_size": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "id": {
+                  "type": "string"
+                },
+                "mime_type": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "name": {
+                  "default": "",
+                  "type": "string"
+                },
+                "ratio": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "1:1, 1.91:1 or 4:5 when the image fits an App slot; None when it fits none."
+                },
+                "resource_name": {
+                  "type": "string"
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "type": {
+                  "type": "string"
+                },
+                "used_in": {
+                  "default": [],
+                  "items": {
+                    "properties": {
+                      "ad_group_id": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "ad_id": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "campaign_id": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "field_type": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "where": {
+                        "description": "ad (in an ad's asset list), campaign or ad_group.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "where"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "youtube_video_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "id",
+                "resource_name",
+                "type"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "More assets: call again with this page_token."
+          }
+        },
+        "required": [
+          "assets"
+        ],
+        "type": "object"
+      },
+      "title": "List image, video and HTML5 assets with sizes and where they are used"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Uploads an HTML5 zip (MEDIA_BUNDLE asset) for App install ads, after checking it.\n\nChecked before Google: at most 5 MB and 512 files, an .html primary entry, the orientation meta\n(<meta name=\"ad.orientation\" content=\"portrait|landscape\">) and https-only URLs. Only App install ads\n(app_ad.html5_media_bundles) take HTML5. Costs 1 Google Ads operation on each call.\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status\nPROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the checksum.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the preview."
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "The Google Ads account."
+          },
+          "data_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The zip as base64 (instead of url)."
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The manager (MCC) account to call through."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Asset name (default: from the URL); the content hash is appended."
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "https URL of the .zip."
+          },
+          "validate_only": {
+            "default": true,
+            "description": "True (default) previews; False applies (needs `checksum`).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "assets_upload_html5",
+      "outputSchema": {
+        "description": "The answer of every write tool: a validated proposal, or what was applied.",
+        "properties": {
+          "change_items": {
+            "items": {
+              "description": "One field a write changes, as the person reviews it.",
+              "properties": {
+                "before": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Its value now, when known."
+                },
+                "entity": {
+                  "description": "What changes (Campaign, Ad group, Keyword...).",
+                  "type": "string"
+                },
+                "field": {
+                  "default": "",
+                  "description": "The field that changes.",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "Which one: its id or name.",
+                  "type": "string"
+                },
+                "operation": {
+                  "description": "CREATE, UPDATE or REMOVE.",
+                  "type": "string"
+                },
+                "value": {
+                  "default": "",
+                  "description": "Its new value.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operation",
+                "entity",
+                "key"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PROPOSED only: pass it back with validate_only=false and the same arguments to apply."
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "next_step": {
+            "description": "What to do next.",
+            "type": "string"
+          },
+          "resource_names": {
+            "description": "APPLIED only: the Google Ads resources created or changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "PROPOSED: Google validated it, nothing changed yet. APPLIED: it is live.",
+            "enum": [
+              "PROPOSED",
+              "APPLIED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "customer_id",
+          "next_step"
+        ],
+        "type": "object"
+      },
+      "title": "Upload an HTML5 ad (zip, from a URL)"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Uploads a JPG/PNG image asset after checking it fits an App campaign image slot.\n\nThe image is fetched from a public https URL (private and loopback hosts are refused, 5 MB cap) or\ntaken from base64. It must be 1:1 (min 200x200), 1.91:1 (min 600x314) or 4:5 (min 320x400) within 0.5%,\nelse it is refused before Google sees it. The asset name gets the content hash appended (Google needs\nunique names). Costs 1 Google Ads operation on each call (the preview counts too).\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status\nPROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the checksum.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the preview."
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "The Google Ads account."
+          },
+          "data_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The image bytes as base64 (instead of url)."
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The manager (MCC) account to call through."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Asset name (default: from the URL); the content hash is appended."
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "https URL of the image."
+          },
+          "validate_only": {
+            "default": true,
+            "description": "True (default) previews; False applies (needs `checksum`).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "assets_upload_image",
+      "outputSchema": {
+        "description": "The answer of every write tool: a validated proposal, or what was applied.",
+        "properties": {
+          "change_items": {
+            "items": {
+              "description": "One field a write changes, as the person reviews it.",
+              "properties": {
+                "before": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Its value now, when known."
+                },
+                "entity": {
+                  "description": "What changes (Campaign, Ad group, Keyword...).",
+                  "type": "string"
+                },
+                "field": {
+                  "default": "",
+                  "description": "The field that changes.",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "Which one: its id or name.",
+                  "type": "string"
+                },
+                "operation": {
+                  "description": "CREATE, UPDATE or REMOVE.",
+                  "type": "string"
+                },
+                "value": {
+                  "default": "",
+                  "description": "Its new value.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operation",
+                "entity",
+                "key"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PROPOSED only: pass it back with validate_only=false and the same arguments to apply."
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "next_step": {
+            "description": "What to do next.",
+            "type": "string"
+          },
+          "resource_names": {
+            "description": "APPLIED only: the Google Ads resources created or changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "PROPOSED: Google validated it, nothing changed yet. APPLIED: it is live.",
+            "enum": [
+              "PROPOSED",
+              "APPLIED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "customer_id",
+          "next_step"
+        ],
+        "type": "object"
+      },
+      "title": "Upload an App campaign image (from a URL)"
     },
     {
       "_meta": {

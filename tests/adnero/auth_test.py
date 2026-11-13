@@ -27,6 +27,11 @@ EXPECTED_TOOLS = sorted(
         "accounts_list_clients",
         "api_mutate",
         "api_read",
+        "app_check",
+        "assets_add_youtube",
+        "assets_list",
+        "assets_upload_html5",
+        "assets_upload_image",
         "assets_create_asset",
         "campaigns_create",
         "campaigns_create_ad",
@@ -175,7 +180,10 @@ class ToolSetTest(unittest.TestCase):
             t
             for t in tools
             if t["name"].split("_")[0]
-            in ("accounts", "api", "campaigns", "keywords")
+            in ("accounts", "api", "app", "campaigns", "keywords")
+            or t["name"].startswith(
+                ("assets_upload_", "assets_add_", "assets_list")
+            )
         ]
         for t in ours:
             # The quality bar (ADR 0014): a title, all four hints, an output schema.

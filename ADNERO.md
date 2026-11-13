@@ -90,6 +90,29 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     Google's own page tokens still continue it page by page. One call = one
     Google page = one operation. The answer is `{rows, row_count, next_page_token, stopped_by, query}` (was a bare
     list).
+- App campaign rules layer (`ads_mcp/rules/`, pure data + checks; DESIGN.md principle 1):
+  - `rules/app.py`: the limits as data (2-5 headlines of 30 chars, 1-5 descriptions of 90; images JPG/PNG <=5 MB,
+    1:1 (min 200x200), 1.91:1 (min 600x314), 4:5 (min 320x400); <=20 images, videos, HTML5 bundles; HTML5 zip <=5 MB
+    and 512 files), the goal -> bidding table, the ad info per sub-type, the immutables, "app ads cannot be paused".
+    The ratio tolerance is 0.5%, not the Help Center's 1%: Google refused 0.8% off live.
+  - `rules/app_creative.py`, `app_goal.py`, `app_targeting.py`, `app_check.py`: the checks; `app_spec.py` the spec.
+  - `rules/__init__.py` `rules_for(resource)`: the rules as data for the schema layer (`ad_group_ad`, `campaign`,
+    `asset`, `ad_group_criterion`).
+- `app_check` (namespace `app`): the pre-launch check. It reads conversion actions, the named assets and user
+  lists (1-3 operations), then runs the pure check; it returns `{ok, problems[{code, field, message, fix, severity}],
+  campaign_sub_type, ad_field, bidding}`. It changes nothing.
+- Assets (namespace `assets`, next to upstream's):
+  - `upload_image`: https URL (or base64). The fetch is SSRF-safe (`safe_fetch.py` + `core/net.py`): https only,
+    the host is resolved once and every address must be public (IPv4-in-IPv6 forms judged too), the connection is
+    pinned to that address with TLS verifying the host, at most 3 redirects (each re-checked), a 5 MB cap and a
+    wall-clock deadline for the whole fetch (a watchdog shuts the socket down, so a drip cannot hold it). The type comes from the magic bytes (PNG/JPEG), and the size and ratio are checked before Google
+    sees it. The name gets the content sha256 (8 hex) appended, so it is unique. Preview -> apply; apply fetches
+    again, and the checksum binds the sha256, so a file that changed in between is refused.
+  - `upload_html5`: zip checks (size, file count, an .html primary entry, `ad.orientation` meta, no http://).
+  - `add_youtube`: a video id or any youtube.com / youtu.be / shorts URL.
+  - `list`: sizes, ratio class, file size, and where each asset is used (ad_group_ad_asset_view, campaign_asset,
+    ad_group_asset; 4 operations per page), with `unused`.
+  - `upload_video_asset` (upstream) stays off in this build: it reads a local file path in stdio mode.
 - Tests: `pytest` (nox runs it; it also runs the unittest classes). CI runs on PRs into `adnero/multi-tenant`
   too, without upstream's Gemini LLM job.
 - `GOOGLE_ADS_REST_BASE`: the REST host for the `api` tools (default `https://googleads.googleapis.com`; tests and

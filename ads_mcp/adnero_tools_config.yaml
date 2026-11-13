@@ -10,8 +10,15 @@ namespaces:
   assets:
     enabled_tools:
       - create_asset: true
+      # stdio-only (a local file path, a background task): never offered in the gateway build.
+      # assets_add_youtube covers videos already on YouTube.
       - upload_video_asset: false
+      - upload_image: true
+      - upload_html5: true
+      - add_youtube: true
+      - list: true
   accounts: true  # list_clients, list_accessible
   campaigns: true
   keywords: true
+  app: true  # check (App campaigns; more in later releases)
   api: true  # read, mutate (raw REST passthrough under one customer)

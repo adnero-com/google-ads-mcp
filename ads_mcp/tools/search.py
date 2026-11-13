@@ -108,6 +108,19 @@ def search(
             query, resource, fields, conditions or (), orderings or (), limit
         )
     )
+    return search_page(
+        customer_id, text, max_rows, page_token, login_customer_id
+    )
+
+
+def search_page(
+    customer_id: str,
+    text: str,
+    max_rows: int | None,
+    page_token: str | None,
+    login_customer_id: str | int | None = None,
+) -> SearchResult:
+    """One bounded page of a GAQL query (the edge of core/gaql.py). Other tools reuse it."""
     rows_cap = _unwrap(gaql.check_max_rows(max_rows))
     text = gaql.stable_order(text)
     ordered = gaql.pages_within(text)

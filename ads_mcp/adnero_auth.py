@@ -406,6 +406,11 @@ names. Ready queries (pass each as `query`):
 Errors come back with Google's code name, field path, trigger and a fix hint when one is known (errors_json).
 Policy findings list their topics and whether a person may request an exemption: never request one on your own.
 
+App campaigns: check the plan with app_check first (goal, conversion actions, texts, assets: problems with
+fixes; changes nothing). Images go up with assets_upload_image (an https URL; it must be 1:1, 1.91:1 or 4:5: other
+ratios are refused before Google), HTML5 zips with assets_upload_html5, YouTube videos with assets_add_youtube;
+assets_list shows sizes, ratio class and where each asset is used.
+
 Change with the campaigns_* and keywords_* tools. Every change is previewed first (validate_only=true: Google
 checks it, nothing changes) and applied only after the person approves (validate_only=false with the checksum).
 New campaigns, ad groups and ads are always created PAUSED; turning them on is campaigns_set_status. Ads and
