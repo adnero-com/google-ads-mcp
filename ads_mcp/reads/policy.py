@@ -15,8 +15,8 @@
 """policy_report, pure part: the queries, the rows shaped, the account → campaign → ad group → ad → asset tree.
 
 Exemptions: Google says whether a finding is exemptible only when a change is submitted (PolicyFindingError);
-the report gives the key a person would ask to exempt (`ignorable_policy_topics` for ads and assets), never
-exempts anything itself.
+the report lists `exemption_candidates` (the `ignorable_policy_topics` a person could ask for, on ads and assets)
+and never exempts anything itself.
 """
 
 from dataclasses import dataclass
@@ -24,6 +24,10 @@ from typing import Any, Iterable, Mapping
 
 from ads_mcp.reads.common import name, names, tail_id
 
+EXEMPTION_NOTE = (
+    "exemption_candidates are topics a person may ask Google to exempt; Google decides at submit time "
+    "(validate_only shows it). Nothing is exempted automatically."
+)
 MAX_ADS = 500
 MAX_ASSETS = 2000
 _ACTIVE = "!= 'REMOVED'"
@@ -143,7 +147,7 @@ def _policy(summary: Any) -> dict:
         "review": name(summary.review_status),
         "policy_topics": found,
         **(
-            {"exemptible_keys": {"ignorable_policy_topics": exempt}}
+            {"exemption_candidates": {"ignorable_policy_topics": exempt}}
             if exempt
             else {}
         ),

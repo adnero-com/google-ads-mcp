@@ -63,7 +63,7 @@ class PolicyReport(BaseModel):
     report: dict = Field(
         description="customer_id, name, campaigns[]: id, name, status, primary_status, reasons, channel, sub_type, "
         "geo {targeted, excluded: [{id, name, type, country_code}]}, ad_groups[] (same status fields), ads[]: "
-        "approval, review, policy_topics [{topic, type, countries, evidence}], exemptible_keys "
+        "approval, review, policy_topics [{topic, type, countries, evidence}], exemption_candidates "
         "{ignorable_policy_topics}, assets[] (per asset in the ad: field_type, approval, review, policy_topics)."
     )
     truncated: list[str] = Field(
@@ -72,6 +72,10 @@ class PolicyReport(BaseModel):
     )
     operations: int = Field(
         description="Google Ads operations this report used."
+    )
+    exemption_note: str = Field(
+        default=pol.EXEMPTION_NOTE,
+        description="How to read exemption_candidates.",
     )
 
 
@@ -90,7 +94,7 @@ def policy_report(
     """Why something does or does not serve: every campaign, ad group, ad and asset of the account (or of one
     campaign / ad group) with its primary status and reasons, approval and review status, policy topics with their
     type (PROHIBITED, LIMITED...) and the countries they restrict, and the topics a person could ask Google to
-    exempt (never exempted here). Location targeting is listed with geo names.
+    exempt (exemption_candidates: Google decides at submit time; never exempted here). Location targeting is listed with geo names.
 
     problems_only=true keeps only what is not ELIGIBLE or carries a restricting finding (and its parents). Costs 5-6
     Google Ads operations (one per level, plus one to name geo targets).

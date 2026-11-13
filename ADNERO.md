@@ -260,7 +260,7 @@ docstring says (one GAQL search = 1 operation).
   (`resolve: {prefix: ""}` in adnero_tools_config.yaml). 1 operation.
 - `policy_report` {customer_id, campaign_id?, ad_group_id?, problems_only?}: campaigns → ad groups → ads → assets,
   each with primary status + reasons, approval / review status, policy topics (type names, constrained countries
-  named), `exemptible_keys.ignorable_policy_topics` for restricting findings (never exempted here), and each
+  named), `exemption_candidates.ignorable_policy_topics` for restricting findings (Google decides at submit time; never exempted here), and each
   campaign's targeted / excluded locations with names. Caps: 500 ads, 2000 assets. 5-6 operations.
 - `app_report` {customer_id, campaign_id | ad_group_id, by: day|network|asset|combination|conversion_action,
   date_preset | start+end}: cost, conversions (installs for install campaigns), value, CPA, ROAS; asset performance

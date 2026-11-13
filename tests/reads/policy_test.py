@@ -170,6 +170,7 @@ class PolicyReportTest(unittest.TestCase):
     def test_owner_account(self):
         out, fake = self.run_report()
         self.assertEqual(out.operations, 6)
+        self.assertIn("Google decides at submit time", out.exemption_note)
         self.assertEqual(len(fake.queries), 6)
         report = out.report
         self.assertEqual(report["name"], "Owner account")
@@ -211,14 +212,16 @@ class PolicyReportTest(unittest.TestCase):
             ad["policy_topics"][0]["countries"][0]["name"], "Canada"
         )
         self.assertEqual(
-            ad["exemptible_keys"],
+            ad["exemption_candidates"],
             {"ignorable_policy_topics": ["SOCIAL_CASINO_GAMES"]},
         )
         self.assertEqual(
             [a["field_type"] for a in ad["assets"]],
             ["HEADLINE", "MARKETING_IMAGE"],
         )
-        self.assertNotIn("exemptible_keys", ad["assets"][0])  # DESCRIPTIVE only
+        self.assertNotIn(
+            "exemption_candidates", ad["assets"][0]
+        )  # DESCRIPTIVE only
 
     def test_problems_only(self):
         out, _ = self.run_report(problems_only=True)
