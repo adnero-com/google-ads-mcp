@@ -20,6 +20,7 @@ as names at every depth. The query and paging rules are pure (ads_mcp/core/gaql.
 the edge that calls Google.
 """
 
+import inspect
 import json
 from typing import Any, Dict, List, Literal
 
@@ -163,7 +164,7 @@ def _search_tool_description() -> str:
         utils.logger.error("The specified file was not found.")
 
     return f"""
-{search.__doc__}
+{inspect.cleandoc(search.__doc__ or "")}
 
 ### Hints
     Language Grammar can be found at https://developers.google.com/google-ads/api/docs/query/grammar
