@@ -188,3 +188,22 @@ Then open a PR in adplatform that bumps the pinned sha (`docker-compose.yml`,
 `docker-bake.hcl`). Its CI checks the tool list against the gateway's
 classification table, so a new upstream tool is never exposed unclassified.
 Rebase monthly, and on every upstream release.
+
+## Schemas (`ads_mcp/schemas/v26/`, generated)
+
+- `ads_mcp/api_version.py` holds `API_VERSION = "v26"`, the one version constant.
+- `scripts/gen_schemas.py` compiles the googleapis Google Ads protos (`resources`, `common`, `services`, `enums`) at a
+  pinned commit (`GOOGLEAPIS_COMMIT`) with `grpc_tools.protoc` (`pip install .[schemas]`, build time only). It writes
+  one gzip JSON file per kind plus `index.json.gz` (resources, services, mutate paths) and `manifest.json`
+  (sha256 and sizes). `--check` compares without writing.
+- Why the protos and not the installed package: proto-plus descriptors in `google-ads` carry no
+  `google.api.field_behavior` (every FieldOptions in v26 is empty), so REQUIRED / IMMUTABLE / OUTPUT_ONLY exist only
+  in googleapis.
+- Each message/enum is a JSON Schema (draft 2020-12) fragment, keyed by its short name (`Campaign`,
+  `Campaign.AppCampaignSetting`, `AppAdInfo`, `CampaignOperation`, enums `CampaignStatus`; kind-qualified on a
+  clash: `common.Metrics`). The properties use proto3 JSON names (lowerCamelCase, as REST takes them). REQUIRED → `required`,
+  OUTPUT_ONLY → `readOnly`, IMMUTABLE → `x-immutable`, oneofs → `x-oneof` (the served schemas expand them to
+  `oneOf`), int64 → digit string, bytes → base64, enums → `$ref` to names (UNSPECIFIED/UNKNOWN dropped), resource
+  references → `x-resource`, resource patterns → `x-pattern`, comments → `description`.
+- Tests: `tests/schema/` (converter on a hand-built descriptor; data facts; `GADS_SCHEMA_REGEN=1` regenerates from
+  googleapis and must match the checked-in data).

@@ -32,6 +32,10 @@ dev = [
     "black",
     "nox >=2025.5.1, <2026"
 ]
+schemas = [
+    # scripts/gen_schemas.py only (protoc); the server reads the checked-in data.
+    "grpcio-tools>=1.70"
+]
 firestore = [
     # 0.4.5 is the first release exposing the Firestore sanitization strategies.
     "py-key-value-aio[firestore] >=0.4.5, <0.5.0"
