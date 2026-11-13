@@ -29,10 +29,8 @@ from ads_mcp.reads import policy as pol
 from ads_mcp.reads.common import date_condition, digits
 
 policy_mcp = FastMCP("policy")
-try:  # one FastMCP per namespace: app_check (adnero_app.py) and app_report share `app`
-    from ads_mcp.tools.adnero_app import app_mcp
-except ImportError:  # before the App rules PR lands
-    app_mcp = FastMCP("app")
+# One FastMCP per namespace: app_report joins app_check and the App writes (adnero_app.py) in `app`.
+from ads_mcp.tools.adnero_app import app_mcp  # noqa: E402
 
 READ = ToolAnnotations(
     readOnlyHint=True,
