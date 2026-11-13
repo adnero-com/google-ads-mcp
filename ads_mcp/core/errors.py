@@ -18,8 +18,8 @@ _SCHEMA_HINT = (
 )
 FIX_HINTS: Mapping[tuple[str | None, str], str] = {
     (None, "ASPECT_RATIO_NOT_ALLOWED"): (
-        "App campaign images must be 1:1 (min 200x200), 1.91:1 (min 600x314) or 4:5 (min 320x400), within 1%. "
-        "Crop the image to one of these ratios and upload it again; 9:16 and 16:9 creative must be a YouTube video."
+        "App campaign images must be 1:1 (min 200x200), 1.91:1 (min 600x314) or 4:5 (min 320x400); Google refuses "
+        "even 0.8% off. Crop the image to one of these ratios and upload it again; 9:16 and 16:9 creative must be a YouTube video."
     ),
     ("ad_group_ad_error", "AD_TYPE_CANNOT_BE_PAUSED"): (
         "App ads (app_ad, app_engagement_ad, app_pre_registration_ad) cannot be paused. Pause the ad group or the "
