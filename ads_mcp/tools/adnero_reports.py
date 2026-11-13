@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from ads_mcp import adnero_mutate as m
 from ads_mcp.reads import app_report as ar
+from ads_mcp.reads import google
 from ads_mcp.reads import lookup as lk
 from ads_mcp.reads import policy as pol
 from ads_mcp.reads.common import date_condition, digits
@@ -41,8 +42,9 @@ READ = ToolAnnotations(
 
 
 def _search(customer_id: str, query: str) -> list:
-    """One GAQL search = one Google Ads operation (patched in tests)."""
-    return m.search_rows(customer_id, query)
+    """One GAQL search = one Google Ads operation (patched in tests); Google's refusals come back structured."""
+    with google.refusals():
+        return m.search_rows(customer_id, query)
 
 
 def _optional_id(value, what: str) -> str | None:

@@ -84,9 +84,9 @@ def _queries(scope: Scope) -> dict:
         ),
         "assets": (
             "SELECT ad_group.id, ad_group_ad_asset_view.ad_group_ad, ad_group_ad_asset_view.field_type, "
-            "ad_group_ad_asset_view.enabled, ad_group_ad_asset_view.policy_summary.approval_status, "
-            "ad_group_ad_asset_view.policy_summary.review_status, "
-            "ad_group_ad_asset_view.policy_summary.policy_topic_entries, asset.id, asset.name, asset.type "
+            # v26: this view's policy_summary is one field (selected whole); its parts are not selectable.
+            "ad_group_ad_asset_view.enabled, ad_group_ad_asset_view.policy_summary, "
+            "asset.id, asset.name, asset.type "
             "FROM ad_group_ad_asset_view WHERE ad_group_ad_asset_view.enabled = TRUE"
             f"{scope.where('ad_group_ad_asset_view')}"
         ),

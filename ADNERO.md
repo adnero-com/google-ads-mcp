@@ -271,3 +271,15 @@ docstring says (one GAQL search = 1 operation).
   (`ads_mcp/resources/recipes.py`): steps + one atomic googleAds:mutate example body each.
 - `scripts/live_smoke_reads.py`: read-only live run of all of these against an account
   (`GOOGLE_ADS_ACCESS_TOKEN` env; never in CI).
+
+## Read tools: field checks and errors
+
+- `ads_mcp/schemas/v26/fields.json.gz` (13 KB): GoogleAdsFieldService metadata (category, data type, selectable,
+  filterable, sortable, repeated; per resource its attributed resources, metrics and segments) for the 14 resources
+  the read tools query, read from Google's public field reference pages by `scripts/gen_field_snapshot.py`
+  (`--check` compares). `tests/reads/fields_test.py` runs every query the read tools build through
+  `schema.gaql.check` against it, so a field Google would answer with UNRECOGNIZED_FIELD fails CI. Add a resource to
+  the script when a read tool starts querying it. (v26: `ad_group_ad_asset_view.policy_summary` is selected whole.)
+- Google refusing a read comes back as the structured error of `utils.format_google_ads_error` (`ads_mcp/reads/
+  google.py`: `refusals()`), never the raw gRPC exception text: accounts_*, lookup_*, resolve, policy_report,
+  app_report and the schema tools' Google calls.

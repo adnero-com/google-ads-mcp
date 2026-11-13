@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from ads_mcp import rules
 from ads_mcp.api_version import API_VERSION
+from ads_mcp.reads import google
 from ads_mcp.schema import assemble, fieldmeta, gaql, proto2js, store
 
 schema_mcp = FastMCP("schema")
@@ -311,7 +312,7 @@ def get_resource(
     try:
         head, own, _ = fieldmeta.resource_fields(name, login_customer_id)
     except Exception as exc:  # the schema is still worth returning
-        return out.model_copy(update={"query_error": _why(exc)})
+        return out.model_copy(update={"query_error": google.message(exc)})
     return out.model_copy(
         update={
             "query": query_section(
@@ -471,7 +472,7 @@ def check_query(
         meta, _ = fieldmeta.fields(gaql.names_in(parsed), login_customer_id)
     except Exception as exc:
         raise ToolError(
-            f"Google Ads field metadata could not be read: {_why(exc)}"
+            f"Google Ads field metadata could not be read: {google.message(exc)}"
         ) from None
     problems = gaql.check(parsed, meta)
     return QueryCheck(
@@ -482,10 +483,3 @@ def check_query(
             n: m.compact() for n, m in meta.items() if m.category != "RESOURCE"
         },
     )
-
-
-def _why(exc: Exception) -> str:
-    failure = getattr(exc, "failure", None)
-    errors = getattr(failure, "errors", None) or []
-    messages = [e.message for e in errors if getattr(e, "message", "")]
-    return "; ".join(messages) or str(exc)[:300] or type(exc).__name__
