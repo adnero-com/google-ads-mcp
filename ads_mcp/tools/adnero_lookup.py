@@ -201,15 +201,16 @@ def language(
     m.use_login(login_customer_id)
     cid = m.customer_id_of(customer_id)
     version = adnero_auth.api_version()
-    if version not in _languages:
-        rows = _search(cid, lk.LANGUAGE_QUERY)
-        with _languages_lock:
-            _languages[version] = sorted(
-                (lk.language(r) for r in rows), key=lambda l: l["name"]
-            )
-    return Languages(
-        languages=lk.match_languages(_languages[version], query or "")
-    )
+    languages = _languages.get(version)
+    if not languages:
+        languages = sorted(
+            (lk.language(r) for r in _search(cid, lk.LANGUAGE_QUERY)),
+            key=lambda l: l["name"],
+        )
+        if languages:  # never cache an empty answer
+            with _languages_lock:
+                _languages[version] = languages
+    return Languages(languages=lk.match_languages(languages, query or ""))
 
 
 # ---------------------------------------------------------------- resolve

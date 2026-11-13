@@ -194,6 +194,13 @@ class ToolsTest(unittest.TestCase):
             self.assertEqual(len(tools.language(customer_id="1").languages), 3)
         self.assertEqual(search.call_count, 1)
 
+    def test_an_empty_language_list_is_not_cached(self):
+        tools._languages.clear()
+        with patch.object(tools, "_search", side_effect=[[], LANGS]) as search:
+            self.assertEqual(tools.language(customer_id="1").languages, [])
+            self.assertEqual(len(tools.language(customer_id="1").languages), 3)
+        self.assertEqual(search.call_count, 2)
+
     def test_resolve(self):
         rows = [
             obj(

@@ -252,3 +252,34 @@ class PolicyReportTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoundsTest(unittest.TestCase):
+    def test_every_level_is_limited(self):
+        for level, query in pol.queries(pol.Scope()).items():
+            with self.subTest(level=level):
+                self.assertTrue(query.endswith(f"LIMIT {pol.CAPS[level] + 1}"))
+
+    def test_cut(self):
+        rows, truncated = pol.cut(
+            {"ads": list(range(pol.CAPS["ads"] + 1)), "campaigns": [1]}
+        )
+        self.assertEqual(len(rows["ads"]), pol.CAPS["ads"])
+        self.assertEqual(truncated, ["ads"])
+
+    def test_geo_names_are_read_in_chunks(self):
+        from ads_mcp.reads import lookup as lk
+
+        queries = lk.geo_by_id_queries([str(i) for i in range(250)])
+        self.assertEqual(len(queries), 3)
+        self.assertEqual(queries[2].count("geoTargetConstants/"), 50)
+        self.assertEqual(lk.geo_by_id_queries([]), [])
+
+    def test_truncated_levels_are_reported(self):
+        many = {
+            **ANSWERS,
+            "ad_group": ANSWERS["ad_group"] * (pol.CAPS["ad_groups"] + 1),
+        }
+        with patch.object(tools, "_search", FakeSearch(many)):
+            out = tools.policy_report(customer_id="8396625493")
+        self.assertEqual(out.truncated, ["ad_groups"])

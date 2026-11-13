@@ -59,10 +59,20 @@ GEO_BY_ID = (
 )
 
 
-def geo_by_id_query(ids: Iterable[str]) -> str:
-    return GEO_BY_ID.format(
-        names=", ".join(quote(f"geoTargetConstants/{i}") for i in ids)
-    )
+GEO_CHUNK = 100
+
+
+def geo_by_id_queries(ids: Iterable[str]) -> list[str]:
+    """One query per GEO_CHUNK ids (an IN list stays short)."""
+    ids = list(ids)
+    return [
+        GEO_BY_ID.format(
+            names=", ".join(
+                quote(f"geoTargetConstants/{i}") for i in ids[n : n + GEO_CHUNK]
+            )
+        )
+        for n in range(0, len(ids), GEO_CHUNK)
+    ]
 
 
 LANGUAGE_QUERY = (

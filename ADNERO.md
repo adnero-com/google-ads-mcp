@@ -261,7 +261,9 @@ docstring says (one GAQL search = 1 operation).
 - `policy_report` {customer_id, campaign_id?, ad_group_id?, problems_only?}: campaigns → ad groups → ads → assets,
   each with primary status + reasons, approval / review status, policy topics (type names, constrained countries
   named), `exemption_candidates.ignorable_policy_topics` for restricting findings (Google decides at submit time; never exempted here), and each
-  campaign's targeted / excluded locations with names. Caps: 500 ads, 2000 assets. 5-6 operations.
+  campaign's targeted / excluded locations with names. Rows per level are capped (campaigns 200, ad groups 1000, ads
+  500, assets 2000, locations 2000; `truncated` names the cut levels); geo names are read 100 per query. 5
+  operations + 1 per 100 geo targets.
 - `app_report` {customer_id, campaign_id | ad_group_id, by: day|network|asset|combination|conversion_action,
   date_preset | start+end}: cost, conversions (installs for install campaigns), value, CPA, ROAS; asset performance
   labels; Google's top combinations (app_top_combination_view, assets named). 1 operation (2 for combination).

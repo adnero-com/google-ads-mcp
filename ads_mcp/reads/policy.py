@@ -28,8 +28,14 @@ EXEMPTION_NOTE = (
     "exemption_candidates are topics a person may ask Google to exempt; Google decides at submit time "
     "(validate_only shows it). Nothing is exempted automatically."
 )
-MAX_ADS = 500
-MAX_ASSETS = 2000
+# Rows read per level (one more is asked for, to know a level was cut).
+CAPS = {
+    "campaigns": 200,
+    "ad_groups": 1000,
+    "ads": 500,
+    "assets": 2000,
+    "locations": 2000,
+}
 _ACTIVE = "!= 'REMOVED'"
 
 
@@ -49,6 +55,14 @@ class Scope:
 
 
 def queries(scope: Scope) -> dict:
+    """One GAQL per level, each limited to its cap + 1."""
+    return {
+        level: f"{q} LIMIT {CAPS[level] + 1}"
+        for level, q in _queries(scope).items()
+    }
+
+
+def _queries(scope: Scope) -> dict:
     return {
         "campaigns": (
             "SELECT customer.descriptive_name, campaign.id, campaign.name, campaign.status, campaign.primary_status, "
@@ -66,7 +80,7 @@ def queries(scope: Scope) -> dict:
             "ad_group_ad.status, ad_group_ad.primary_status, ad_group_ad.primary_status_reasons, "
             "ad_group_ad.policy_summary.approval_status, ad_group_ad.policy_summary.review_status, "
             "ad_group_ad.policy_summary.policy_topic_entries FROM ad_group_ad "
-            f"WHERE ad_group_ad.status {_ACTIVE}{scope.where('ad_group_ad')} LIMIT {MAX_ADS + 1}"
+            f"WHERE ad_group_ad.status {_ACTIVE}{scope.where('ad_group_ad')}"
         ),
         "assets": (
             "SELECT ad_group.id, ad_group_ad_asset_view.ad_group_ad, ad_group_ad_asset_view.field_type, "
@@ -74,7 +88,7 @@ def queries(scope: Scope) -> dict:
             "ad_group_ad_asset_view.policy_summary.review_status, "
             "ad_group_ad_asset_view.policy_summary.policy_topic_entries, asset.id, asset.name, asset.type "
             "FROM ad_group_ad_asset_view WHERE ad_group_ad_asset_view.enabled = TRUE"
-            f"{scope.where('ad_group_ad_asset_view')} LIMIT {MAX_ASSETS + 1}"
+            f"{scope.where('ad_group_ad_asset_view')}"
         ),
         "locations": (
             "SELECT campaign.id, campaign_criterion.location.geo_target_constant, campaign_criterion.negative "
@@ -254,6 +268,14 @@ def _with_geo_names(x: dict, geo: Mapping[str, dict]) -> dict:
             for t in x["policy_topics"]
         ],
     }
+
+
+def cut(levels: dict) -> tuple[dict, list[str]]:
+    """Each level's rows within its cap, and the levels that were over it."""
+    return (
+        {k: v[: CAPS[k]] for k, v in levels.items()},
+        [k for k, v in levels.items() if len(v) > CAPS[k]],
+    )
 
 
 def tree(

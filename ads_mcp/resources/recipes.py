@@ -45,7 +45,7 @@ _COMMON_AFTER = [
     "api_mutate {customer_id, path: 'customers/{customer_id}/googleAds:mutate', body: <example, filled in>} with "
     "validate_only=true: the schemas, then Google, check every operation; nothing changes. Show the change list to "
     "the person.",
-    "Apply with validate_only=false and the checksum once the person approves. Everything is created in one atomic "
+    "Apply with validate_only=false and the plan_id once the person approves. Everything is created in one atomic "
     "request: all of it or none.",
     "The campaign is PAUSED. The App ad is ENABLED (App ads cannot be paused: pause the ad group or campaign instead). "
     "The person enables the campaign when ready.",

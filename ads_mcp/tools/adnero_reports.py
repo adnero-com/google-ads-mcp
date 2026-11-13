@@ -68,7 +68,9 @@ class PolicyReport(BaseModel):
     )
     truncated: list[str] = Field(
         default_factory=list,
-        description=f"Levels cut at their cap (ads {pol.MAX_ADS}, assets {pol.MAX_ASSETS}): narrow with campaign_id.",
+        description="Levels cut at their cap (rows per level: "
+        + ", ".join(f"{k} {v}" for k, v in pol.CAPS.items())
+        + "): narrow with campaign_id or ad_group_id.",
     )
     operations: int = Field(
         description="Google Ads operations this report used."
@@ -96,8 +98,8 @@ def policy_report(
     type (PROHIBITED, LIMITED...) and the countries they restrict, and the topics a person could ask Google to
     exempt (exemption_candidates: Google decides at submit time; never exempted here). Location targeting is listed with geo names.
 
-    problems_only=true keeps only what is not ELIGIBLE or carries a restricting finding (and its parents). Costs 5-6
-    Google Ads operations (one per level, plus one to name geo targets).
+    problems_only=true keeps only what is not ELIGIBLE or carries a restricting finding (and its parents). Costs 5 Google
+    Ads operations (one per level), plus one per 100 geo targets to name.
 
     Args:
         customer_id: The Google Ads account (digits; hyphens are dropped).
@@ -113,35 +115,35 @@ def policy_report(
         _optional_id(ad_group_id, "ad_group_id"),
     )
     q = pol.queries(scope)
-    campaign_rows = _search(cid, q["campaigns"])
-    ad_groups = [pol.ad_group(r) for r in _search(cid, q["ad_groups"])]
-    ads = [pol.ad(r) for r in _search(cid, q["ads"])]
-    assets = [pol.asset(r) for r in _search(cid, q["assets"])]
-    locations = [pol.location(r) for r in _search(cid, q["locations"])]
+    levels, truncated = pol.cut(
+        {
+            "campaigns": _search(cid, q["campaigns"]),
+            "ad_groups": [
+                pol.ad_group(r) for r in _search(cid, q["ad_groups"])
+            ],
+            "ads": [pol.ad(r) for r in _search(cid, q["ads"])],
+            "assets": [pol.asset(r) for r in _search(cid, q["assets"])],
+            "locations": [
+                pol.location(r) for r in _search(cid, q["locations"])
+            ],
+        }
+    )
+    campaign_rows, ad_groups, ads, assets, locations = (
+        levels[k]
+        for k in ("campaigns", "ad_groups", "ads", "assets", "locations")
+    )
     operations = 5
     campaigns = [pol.campaign(r) for r in campaign_rows]
     if scope.ad_group_id:
         owners = {g["campaign_id"] for g in ad_groups}
         campaigns = [c for c in campaigns if c["id"] in owners]
-    ids = pol.geo_ids(locations, ads, assets)
-    geo = {}
-    if ids:
-        geo = {
-            g["id"]: g
-            for g in (
-                lk.geo(r.geo_target_constant)
-                for r in _search(cid, lk.geo_by_id_query(ids))
-            )
-        }
-        operations += 1
-    truncated = [
-        level
-        for level, items, cap in (
-            ("ads", ads, pol.MAX_ADS),
-            ("assets", assets, pol.MAX_ASSETS),
-        )
-        if len(items) > cap
-    ]
+    geo_queries = lk.geo_by_id_queries(pol.geo_ids(locations, ads, assets))
+    geo = {
+        g["id"]: g
+        for query in geo_queries
+        for g in (lk.geo(r.geo_target_constant) for r in _search(cid, query))
+    }
+    operations += len(geo_queries)
     account = {
         "customer_id": cid,
         "name": (
@@ -158,8 +160,8 @@ def policy_report(
         account,
         campaigns,
         ad_groups,
-        ads[: pol.MAX_ADS],
-        assets[: pol.MAX_ASSETS],
+        ads,
+        assets,
         locations,
         geo,
         problems_only,
