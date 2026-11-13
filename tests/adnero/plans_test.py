@@ -18,7 +18,13 @@ def fresh():
     [
         ({"GOOGLE_ADS_MCP_PLAN_SECRET": "p" * 32}, True),
         ({"GOOGLE_ADS_MCP_SHARED_SECRET": "g" * 32}, True),
-        ({"GOOGLE_ADS_MCP_PLAN_SECRET": "short", "GOOGLE_ADS_MCP_SHARED_SECRET": "g" * 32}, True),
+        (
+            {
+                "GOOGLE_ADS_MCP_PLAN_SECRET": "short",
+                "GOOGLE_ADS_MCP_SHARED_SECRET": "g" * 32,
+            },
+            True,
+        ),
         ({}, False),  # per-process random key
     ],
 )
