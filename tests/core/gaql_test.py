@@ -163,3 +163,45 @@ def test_unordered_cut_has_no_cursor():
     assert gaql.next_cursor(
         gaql.Cursor("f", "", 0), end, "G2", ordered=False
     ) == gaql.Cursor("f", "G2", 0)
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        # 'order by' / 'limit' inside a literal are not clauses
+        (
+            "SELECT campaign.id FROM campaign WHERE campaign.name = 'order by me'",
+            "SELECT campaign.id FROM campaign WHERE campaign.name = 'order by me' ORDER BY campaign.id",
+        ),
+        (
+            "SELECT campaign.id FROM campaign WHERE campaign.name = 'x LIMIT 5' LIMIT 3",
+            "SELECT campaign.id FROM campaign WHERE campaign.name = 'x LIMIT 5' ORDER BY campaign.id LIMIT 3",
+        ),
+        (
+            'SELECT campaign.id FROM campaign WHERE campaign.name LIKE "%ORDER BY%"',
+            'SELECT campaign.id FROM campaign WHERE campaign.name LIKE "%ORDER BY%" ORDER BY campaign.id',
+        ),
+    ],
+)
+def test_literals_are_ignored(query, expected):
+    assert gaql.stable_order(query) == expected
+
+
+@pytest.mark.parametrize(
+    "query, within",
+    [
+        ("SELECT campaign.id FROM campaign ORDER BY campaign.id", True),
+        (
+            "SELECT campaign.id, segments.date FROM campaign ORDER BY campaign.id",
+            False,
+        ),
+        ("SELECT campaign.id, segments.device FROM campaign", False),
+        ("SELECT campaign.name FROM campaign", False),
+        (
+            "SELECT campaign.name FROM campaign WHERE campaign.name = 'order by'",
+            False,
+        ),
+    ],
+)
+def test_pages_within(query, within):
+    assert gaql.pages_within(gaql.stable_order(query)) is within

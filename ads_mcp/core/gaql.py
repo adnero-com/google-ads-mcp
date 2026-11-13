@@ -95,29 +95,50 @@ _ORDER_BY = re.compile(r"\bORDER\s+BY\b", re.I)
 _FROM = re.compile(r"\bFROM\s+([a-z_]+)", re.I)
 _SELECT = re.compile(r"^\s*SELECT\s+(.*?)\s+FROM\b", re.I | re.S)
 _TAIL = re.compile(r"\s+(LIMIT\b|PARAMETERS\b)", re.I)
+_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", re.S)
+
+
+def _masked(query: str) -> str:
+    """The query with every quoted literal's content blanked out (same length, so positions still match):
+    keywords inside a string ('order by me') are never read as clauses."""
+    return _LITERAL.sub(
+        lambda m: m.group(0)[0] + "_" * (len(m.group(0)) - 2) + m.group(0)[-1],
+        query,
+    )
+
+
+def _selected(masked: str) -> set[str]:
+    found = _SELECT.search(masked)
+    return {f.strip() for f in found.group(1).split(",")} if found else set()
 
 
 def is_ordered(query: str) -> bool:
-    return bool(_ORDER_BY.search(query))
+    return bool(_ORDER_BY.search(_masked(query)))
+
+
+def pages_within(query: str) -> bool:
+    """Whether a cursor may resume inside a Google page: the query is ordered and selects no segments.
+
+    With segments, several rows share a resource id, so ORDER BY <resource>.id does not fix their order; such
+    queries only page at Google's page boundaries (Google's own token).
+    """
+    masked = _masked(query)
+    segments = any(f.startswith("segments.") for f in _selected(masked))
+    return bool(_ORDER_BY.search(masked)) and not segments
 
 
 def stable_order(query: str) -> str:
-    """Adds ORDER BY <resource>.id when the query selects it and orders by nothing.
-
-    A cursor that resumes inside a Google page re-reads that page; only an ordered query returns the same rows
-    in the same order, so only ordered queries get a mid-page cursor (see next_cursor).
-    """
-    if is_ordered(query):
+    """Adds ORDER BY <resource>.id when the query selects it and orders by nothing (literals ignored)."""
+    masked = _masked(query)
+    if _ORDER_BY.search(masked):
         return query
-    resource = _FROM.search(query)
-    selected = _SELECT.search(query)
-    if not resource or not selected:
+    resource = _FROM.search(masked)
+    if not resource:
         return query
     key = f"{resource.group(1)}.id"
-    fields = {f.strip() for f in selected.group(1).split(",")}
-    if key not in fields:
+    if key not in _selected(masked):
         return query
-    tail = _TAIL.search(query)
+    tail = _TAIL.search(masked, resource.end())
     cut = tail.start() if tail else len(query)
     return f"{query[:cut]} ORDER BY {key}{query[cut:]}"
 

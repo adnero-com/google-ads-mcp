@@ -110,7 +110,7 @@ def search(
     )
     rows_cap = _unwrap(gaql.check_max_rows(max_rows))
     text = gaql.stable_order(text)
-    ordered = gaql.is_ordered(text)
+    ordered = gaql.pages_within(text)
     fp = gaql.fingerprint(customer_id, text)
     cursor = (
         _unwrap(gaql.decode_cursor(page_token, fp))
@@ -153,8 +153,8 @@ def search(
         stopped_by=page.stopped_by,
         query=text,
         note=(
-            "More rows exist, but a query without ORDER BY cannot be paged inside a result page: add an ORDER BY "
-            "(e.g. on the resource's id) or raise max_rows."
+            "More rows exist, but this query cannot be paged inside a result page (it has no ORDER BY, or it "
+            "selects segments): add an ORDER BY on the resource's id, drop the segments, or raise max_rows."
             if page.stopped_by != "END" and not ordered
             else None
         ),

@@ -72,8 +72,9 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
 - Pure core (`ads_mcp/core/`): no I/O, failures as `Result` values (`core/result.py`).
   - `core/plain.py`: every value a tool returns is plain data with enum NAMES at every depth (nested messages too:
     `policy_summary.policy_topic_entries[].type` is `LIMITED`, not 4) and API keys (`type`, never proto-plus's
-    `type_`). int64 values (ids, micros) are JSON numbers at every depth, like a row's top-level fields (they
-    stay below 2**53). Only set fields appear: no made-up defaults. `utils.format_output_value` delegates to it.
+    `type_`). int64 values (ids, micros) are JSON numbers at every depth, like a row's top-level fields, except
+    when |value| >= 2**53: then they are digit strings, so no JSON client rounds them (a summed cost_micros in a
+    weak currency such as VND can cross it). Clients read number-or-string. Only set fields appear: no made-up defaults. `utils.format_output_value` delegates to it.
   - `core/errors.py`: every `GoogleAdsException` becomes `{request_id, errors[]: {code, error_type, message,
     field_path, operation_index, trigger, exemptible, policy_topics, fix}}`. `utils.format_google_ads_error` renders
     one readable line per error, then `errors_json: <that JSON>`. Fix hints live in one table (`FIX_HINTS`):
@@ -84,7 +85,9 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     `limit`), and answers one bounded page: `max_rows` (default 500, max 10,000), a ~200 KB byte cap, and
     `next_page_token` (our cursor over Google's 10,000-row pages, bound to the customer and query). A cursor
     that resumes inside a Google page needs a stable order: `ORDER BY <resource>.id` is added when that field is
-    selected and nothing is ordered; an unordered query cut mid-page gets no token but a `note`. One call = one
+    selected and nothing is ordered (quoted literals are ignored when looking for ORDER BY / LIMIT). A query
+    that is unordered or selects `segments.*` (rows share an id) gets no token inside a page, only a `note`;
+    Google's own page tokens still continue it page by page. One call = one
     Google page = one operation. The answer is `{rows, row_count, next_page_token, stopped_by, query}` (was a bare
     list).
 - Tests: `pytest` (nox runs it; it also runs the unittest classes). CI runs on PRs into `adnero/multi-tenant`

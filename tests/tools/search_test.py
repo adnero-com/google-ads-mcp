@@ -237,3 +237,13 @@ def test_unordered_queries_get_no_mid_page_token(fake):
         customer_id="1", query="SELECT campaign.name FROM campaign"
     )
     assert whole.next_page_token and whole.note is None
+
+
+def test_segments_get_no_mid_page_token(fake):
+    fake({"": ([1, 2, 3], "")})
+    out = search.search(
+        customer_id="1",
+        query="SELECT campaign.id, segments.date FROM campaign",
+        max_rows=2,
+    )
+    assert out.next_page_token is None and "segments" in out.note

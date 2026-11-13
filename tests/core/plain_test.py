@@ -105,3 +105,25 @@ def test_no_made_up_defaults():
         "review_status": "REVIEWED"
     }  # approval_status unset: absent, not "UNSPECIFIED"
     assert to_plain(Metrics()) == {}
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (2**53 - 1, 2**53 - 1),
+        (2**53, str(2**53)),
+        (-(2**53), str(-(2**53))),
+        (
+            123_000_000_000_000_000,
+            "123000000000000000",
+        ),  # e.g. summed cost_micros in VND
+        (True, True),  # bools are not int64
+    ],
+)
+def test_big_int64_are_strings(value, expected):
+    assert to_plain(value) == expected
+
+
+def test_big_int64_nested():
+    m = Metrics(cost_micros=123_000_000_000_000_000, clicks=5)
+    assert to_plain(m) == {"cost_micros": "123000000000000000", "clicks": 5}

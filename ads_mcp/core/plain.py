@@ -4,8 +4,9 @@ Rules, everywhere and at every depth:
 - enums are returned as their NAME ('LIMITED'), never their number;
 - keys are the API's field names: proto-plus escapes Python keywords with a trailing
   underscore ('type_'), which is removed ('type');
-- int64 values are JSON numbers at every depth (ids, micros, counts), like the top-level fields of a row:
-  Google Ads ids and micros stay below 2**53, so no client loses precision;
+- int64 values are JSON numbers at every depth (ids, micros, counts), like the top-level fields of a row,
+  EXCEPT when |value| >= 2**53: then they are digit strings, so no JSON client rounds them (a summed
+  cost_micros in a weak currency such as VND can cross it). Read a number-or-string; never assume one;
 - only fields that are set appear: no made-up defaults (an unset enum is absent, not "UNSPECIFIED").
 """
 
@@ -44,11 +45,19 @@ _INT64 = frozenset(
 )
 
 
+SAFE_INT = 2**53
+
+
+def safe_int(value: int) -> int | str:
+    """A JSON-safe int64: a number below 2**53 in absolute value, else its digit string."""
+    return value if -SAFE_INT < value < SAFE_INT else str(value)
+
+
 def _unquote(value: Any, field: FieldDescriptor) -> Any:
     if isinstance(value, list):
         return [_unquote(v, field) for v in value]
     if field.type in _INT64 and isinstance(value, str):
-        return int(value)
+        return safe_int(int(value))
     if field.type == FieldDescriptor.TYPE_MESSAGE and isinstance(value, dict):
         return _unquote_message(value, field.message_type)
     return value
@@ -95,6 +104,10 @@ def to_plain(value: Any) -> Any:
         )
     if isinstance(value, Mapping):
         return {api_key(str(k)): to_plain(v) for k, v in value.items()}
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return safe_int(value)
     if isinstance(value, (str, bytes, bytearray)):
         return value
     if hasattr(value, "__iter__"):
