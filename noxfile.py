@@ -17,21 +17,24 @@ import sys
 
 PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
 
+# pytest runs the unittest classes and the table-driven (parametrized) tests alike;
+# `unittest discover` would silently skip the latter.
 TEST_COMMAND = [
     "coverage",
     "run",
     "--append",
     "-m",
-    "unittest",
-    "discover",
-    "--buffer",
-    "-s=tests",
-    "-p",
-    "*_test.py",
+    "pytest",
+    "-q",
+    "tests",
+    "--ignore=tests/smoke",
+    "-o",
+    "python_files=*_test.py",
 ]
 
 FREEZE_COMMAND = [sys.executable, "-m", "pip", "freeze"]
 TEST_DEPENDENCIES = [
+    "pytest>=8,<9",
     "pyfakefs>=5.0.0,<6.0",
     "coverage==6.5.0",
     # Lets the firestore storage backend tests run instead of being skipped.

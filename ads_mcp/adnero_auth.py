@@ -57,6 +57,8 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware
 from mcp.types import TextContent
 
+from ads_mcp.api_version import API_VERSION  # noqa: E402
+
 MULTI_TENANT_ENV = "ADNERO_MULTI_TENANT"
 SHARED_SECRET_ENV = "GOOGLE_ADS_MCP_SHARED_SECRET"
 API_ENDPOINT_ENV = "GOOGLE_ADS_API_ENDPOINT"
@@ -65,10 +67,8 @@ ALLOWED_PROJECTS_ENV = "GOOGLE_ADS_MCP_ALLOWED_PROJECTS"
 TOKENINFO_URL_ENV = "GOOGLE_ADS_TOKENINFO_URL"
 API_VERSION_ENV = "GOOGLE_ADS_API_VERSION"
 
-# Google Ads API major version every client and REST call uses. Minor releases (v26.2...) are served on the
-# same major endpoint, so only the major is pinned here.
-DEFAULT_API_VERSION = "v26"
-_API_VERSION = re.compile(r"^v\d{2}$")
+# Kept for callers that read it; the one source is ads_mcp.api_version.API_VERSION.
+DEFAULT_API_VERSION = API_VERSION
 
 DEFAULT_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 ADWORDS_SCOPE = "https://www.googleapis.com/auth/adwords"
@@ -103,19 +103,20 @@ def api_endpoint() -> str | None:
 
 
 def api_version() -> str:
-    """The Google Ads API version ('v26'): GOOGLE_ADS_API_VERSION when it looks like 'vNN', else the default."""
+    """The Google Ads API version every client, REST call and schema uses: ads_mcp.api_version.API_VERSION.
+
+    There is no env override: the code, the client lib pin and the checked-in schemas move together. A
+    GOOGLE_ADS_API_VERSION naming another version is ignored with a warning (it used to switch versions).
+    """
     value = os.environ.get(API_VERSION_ENV, "").strip()
-    if not value:
-        return DEFAULT_API_VERSION
-    if not _API_VERSION.match(value):
+    if value and value != API_VERSION:
         logging.getLogger(__name__).warning(
-            "%s=%r is not a version like 'v26'; using %s",
+            "%s=%r is ignored: this build speaks %s only",
             API_VERSION_ENV,
             value[:20],
-            DEFAULT_API_VERSION,
+            API_VERSION,
         )
-        return DEFAULT_API_VERSION
-    return value
+    return API_VERSION
 
 
 def _header(name: str) -> str:
@@ -190,7 +191,9 @@ def resource_metadata_url(url: str) -> str:
     """origin + prefix + /.well-known/oauth-protected-resource (the last path segment is replaced)."""
     parts = urllib.parse.urlsplit(url)
     prefix = parts.path.rstrip("/").rsplit("/", 1)[0]
-    return f"{parts.scheme}://{parts.netloc}{prefix}{RESOURCE_METADATA_PATHS[0]}"
+    return (
+        f"{parts.scheme}://{parts.netloc}{prefix}{RESOURCE_METADATA_PATHS[0]}"
+    )
 
 
 def resource_metadata() -> dict:
@@ -239,14 +242,18 @@ def _cache_put(key: str, valid: bool, ttl: float) -> None:
 
 def _tokeninfo(token: str) -> tuple[int, dict]:
     """(HTTP status, JSON body) of Google's tokeninfo; status 0 when unreachable. Never logs the token."""
-    base = os.environ.get(TOKENINFO_URL_ENV, "").strip() or DEFAULT_TOKENINFO_URL
+    base = (
+        os.environ.get(TOKENINFO_URL_ENV, "").strip() or DEFAULT_TOKENINFO_URL
+    )
     url = f"{base}?{urllib.parse.urlencode({'access_token': token})}"
     try:
         with urllib.request.urlopen(url, timeout=TOKENINFO_TIMEOUT_S) as resp:
             status, raw = resp.status, resp.read()
     except urllib.error.HTTPError as exc:
         status, raw = exc.code, b""
-    except Exception:  # unreachable, timeout: the text could echo the URL, so say nothing of it
+    except (
+        Exception
+    ):  # unreachable, timeout: the text could echo the URL, so say nothing of it
         logging.getLogger(__name__).warning("tokeninfo unreachable")
         return 0, {}
     try:
@@ -321,7 +328,9 @@ class SharedSecretMiddleware:
         response_headers = [(b"content-type", b"application/json")]
         url = public_url()
         if url:
-            challenge = f'Bearer resource_metadata="{resource_metadata_url(url)}"'
+            challenge = (
+                f'Bearer resource_metadata="{resource_metadata_url(url)}"'
+            )
             response_headers.append(
                 (b"www-authenticate", challenge.encode("latin-1"))
             )
@@ -366,9 +375,11 @@ and which ones work. Then accounts_list_clients lists the accounts under a manag
 them as customer_id. When an account is reached through a manager, pass that manager as login_customer_id (every
 tool takes it; the connection's own manager wins when it has one). Money is in micros of the account currency (10 EUR = 10000000).
 
-Read with search_search (GAQL; metadata_get_resource_metadata lists a resource's fields). One search is ONE
-operation however many rows it returns, and this app has a daily operations budget (each result ends with what is
-left): prefer one search over many small ones. Ready queries:
+Read with search_search: pass `query` (a GAQL string) or `resource` + `fields` (+ `conditions`);
+metadata_get_resource_metadata lists a resource's fields. One search is ONE operation; an answer holds at most
+`max_rows` rows (default 500) and about 200 KB, and `next_page_token` fetches the rest. This app has a daily
+operations budget (each result ends with what is left): prefer one search over many small ones. Enums come back as
+names. Ready queries (pass each as `query`):
 - campaigns: SELECT campaign.id, campaign.name, campaign.status, campaign_budget.amount_micros, metrics.cost_micros,
   metrics.conversions FROM campaign WHERE segments.date DURING LAST_7_DAYS
 - ad groups: SELECT ad_group.id, ad_group.name, ad_group.status, ad_group.cpc_bid_micros, campaign.id FROM ad_group
@@ -377,6 +388,9 @@ left): prefer one search over many small ones. Ready queries:
   ad_group_criterion.keyword.match_type, ad_group_criterion.status, ad_group.id FROM keyword_view
 - assets: SELECT asset.id, asset.name, asset.type FROM asset
 - conversions: SELECT conversion_action.id, conversion_action.name, conversion_action.status FROM conversion_action
+
+Errors come back with Google's code name, field path, trigger and a fix hint when one is known (errors_json).
+Policy findings list their topics and whether a person may request an exemption: never request one on your own.
 
 Change with the campaigns_* and keywords_* tools. Every change is previewed first (validate_only=true: Google
 checks it, nothing changes) and applied only after the person approves (validate_only=false with the checksum).

@@ -20,19 +20,19 @@ from unittest.mock import MagicMock, create_autospec, patch
 
 from fastmcp.exceptions import ToolError
 from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.v25.services.services.ad_group_criterion_label_service import (
+from google.ads.googleads.v26.services.services.ad_group_criterion_label_service import (
     AdGroupCriterionLabelServiceClient,
 )
-from google.ads.googleads.v25.services.services.ad_group_label_service import (
+from google.ads.googleads.v26.services.services.ad_group_label_service import (
     AdGroupLabelServiceClient,
 )
-from google.ads.googleads.v25.services.services.campaign_label_service import (
+from google.ads.googleads.v26.services.services.campaign_label_service import (
     CampaignLabelServiceClient,
 )
-from google.ads.googleads.v25.services.services.customer_label_service import (
+from google.ads.googleads.v26.services.services.customer_label_service import (
     CustomerLabelServiceClient,
 )
-from google.ads.googleads.v25.services.services.label_service import (
+from google.ads.googleads.v26.services.services.label_service import (
     LabelServiceClient,
 )
 from google.auth.credentials import AnonymousCredentials

@@ -12,78 +12,140 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tools for exposing the API Search method to the MCP server."""
+"""Tools for exposing the API Search method to the MCP server.
 
-from typing import Any, Dict, List
+adnero: `search` takes a GAQL `query` string OR resource + fields (+ conditions, orderings, limit),
+and every answer is bounded (max_rows, a byte cap) with a page token for the rest. Enums come back
+as names at every depth. The query and paging rules are pure (ads_mcp/core/gaql.py); this module is
+the edge that calls Google.
+"""
+
+import json
+from typing import Any, Dict, List, Literal
+
 from fastmcp import FastMCP
 from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 search_mcp = FastMCP("search")
 
 import ads_mcp.utils as utils
+from ads_mcp.core import gaql
+from ads_mcp.core.result import Err
 from google.ads.googleads.errors import GoogleAdsException
 from fastmcp.exceptions import ToolError
 
 
+class SearchResult(BaseModel):
+    """One bounded page of GAQL rows."""
+
+    rows: List[Dict[str, Any]] = Field(
+        description="One object per row, keyed by the selected field paths; enums as names."
+    )
+    row_count: int
+    next_page_token: str | None = Field(
+        default=None,
+        description="More rows exist: call again with the same query, customer_id and this page_token.",
+    )
+    stopped_by: Literal["END", "MAX_ROWS", "BYTE_CAP"] = Field(
+        description="END: no more rows on this page. MAX_ROWS / BYTE_CAP: the answer was cut; page on."
+    )
+    query: str = Field(description="The GAQL that ran.")
+
+
+def _fail(message: str) -> ToolError:
+    return ToolError(f"Error: {message}")
+
+
+def _unwrap(result):
+    if isinstance(result, Err):
+        raise _fail(result.error)
+    return result.value
+
+
 def search(
     customer_id: str | int,
-    fields: List[str],
-    resource: str,
+    query: str | None = None,
+    fields: List[str] | None = None,
+    resource: str | None = None,
     conditions: List[str] = [],
     orderings: List[str] = [],
     limit: int | None = None,
+    max_rows: int | None = None,
+    page_token: str | None = None,
     login_customer_id: str | int | None = None,
-) -> List[Dict[str, Any]]:
-    """Fetches data from the Google Ads API using the search method
+) -> SearchResult:
+    """Fetches data from the Google Ads API with GAQL, one bounded page per call.
+
+    Pass EITHER `query` (a full GAQL string, e.g. "SELECT campaign.id, campaign.name FROM campaign WHERE
+    campaign.status = 'ENABLED'") OR `resource` + `fields` (+ `conditions`, `orderings`, `limit`).
+    One call is one Google Ads operation. At most `max_rows` rows (default 500, at most 10000) and about
+    200 KB come back; when more exist, `next_page_token` is set: call again with the same query and it.
 
     Args:
         customer_id: The id of the customer
+        query: A full GAQL SELECT statement (instead of resource + fields)
         fields: The fields to fetch
         resource: The resource to return fields from
         conditions: List of conditions to filter the data, combined using AND clauses
         orderings: How the data is ordered
-        limit: The maximum number of rows to return
+        limit: The GAQL LIMIT (parts form only)
+        max_rows: Rows per answer (default 500, max 10000)
+        page_token: From a previous answer of the same query, to get the next rows
         login_customer_id: Optional manager customer ID to use as the login-customer-id header.
 
     """
 
     customer_id = utils.clean_customer_id(customer_id)
+    text = _unwrap(
+        gaql.choose_query(
+            query, resource, fields, conditions or (), orderings or (), limit
+        )
+    )
+    rows_cap = _unwrap(gaql.check_max_rows(max_rows))
+    fp = gaql.fingerprint(customer_id, text)
+    cursor = (
+        _unwrap(gaql.decode_cursor(page_token, fp))
+        if page_token
+        else gaql.Cursor(fp, "", 0)
+    )
 
     ga_service = utils.get_googleads_service(
         "GoogleAdsService", login_customer_id=login_customer_id
     )
-
-    query_parts = [f"SELECT {','.join(fields)} FROM {resource}"]
-
-    if conditions:
-        query_parts.append(f" WHERE {' AND '.join(conditions)}")
-
-    if orderings:
-        query_parts.append(f" ORDER BY {','.join(orderings)}")
-
-    if limit:
-        query_parts.append(f" LIMIT {limit}")
-
-    query_parts.append(" PARAMETERS omit_unselected_resource_names=true")
-
-    query = "".join(query_parts)
-    utils.logger.info(f"ads_mcp.search query {query}")
+    utils.logger.info(f"ads_mcp.search query {text}")
+    request: Dict[str, Any] = {"customer_id": customer_id, "query": text}
+    if cursor.google_token:
+        request["page_token"] = cursor.google_token
 
     try:
-        query_result = ga_service.search_stream(
-            customer_id=customer_id, query=query
+        # Exactly one Google page per call: one operation.
+        first = next(iter(ga_service.search(request=request).pages))
+        paths = list(first.field_mask.paths)
+        formatted = (
+            utils.format_output_row(row, paths) for row in first.results
         )
-
-        final_output: List = []
-        for batch in query_result:
-            for row in batch.results:
-                final_output.append(
-                    utils.format_output_row(row, batch.field_mask.paths)
-                )
-        return final_output
+        page = gaql.take_rows(
+            formatted,
+            cursor.offset,
+            rows_cap,
+            size_of=lambda r: len(json.dumps(r, default=str)),
+            byte_cap=gaql.BYTE_CAP,
+        )
+        following = gaql.next_cursor(
+            cursor, page, str(first.next_page_token or "")
+        )
     except GoogleAdsException as ex:
         raise ToolError(utils.format_google_ads_error(ex)) from ex
+
+    return SearchResult(
+        rows=list(page.rows),
+        row_count=len(page.rows),
+        next_page_token=gaql.encode_cursor(following) if following else None,
+        stopped_by=page.stopped_by,
+        query=text,
+    )
 
 
 def _search_tool_description() -> str:

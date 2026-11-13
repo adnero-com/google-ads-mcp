@@ -54,7 +54,11 @@ class StubTokeninfo:
     def good(self, token, aud="310132552575-abc.apps.googleusercontent.com"):
         self.answers[token] = (
             200,
-            {"scope": f"openid {ADWORDS}", "aud": aud, "exp": str(int(time.time()) + 3000)},
+            {
+                "scope": f"openid {ADWORDS}",
+                "aud": aud,
+                "exp": str(int(time.time()) + 3000),
+            },
         )
 
     def close(self):
@@ -96,14 +100,20 @@ class TokenOkTest(BearerBase):
     def test_refuses_a_missing_scope(self):
         self.stub.answers["t2"] = (
             200,
-            {"scope": "openid email", "aud": "1-x", "exp": str(int(time.time()) + 99)},
+            {
+                "scope": "openid email",
+                "aud": "1-x",
+                "exp": str(int(time.time()) + 99),
+            },
         )
         self.assertFalse(adnero_auth.token_ok("t2"))
 
     def test_refuses_a_token_google_rejects(self):
         self.assertFalse(adnero_auth.token_ok("unknown"))
 
-    def test_no_allowed_projects_refuses_every_token_without_asking_google(self):
+    def test_no_allowed_projects_refuses_every_token_without_asking_google(
+        self,
+    ):
         self.stub.good("t0")
         os.environ.pop("GOOGLE_ADS_MCP_ALLOWED_PROJECTS")
         self.assertFalse(adnero_auth.token_ok("t0"))
@@ -194,7 +204,9 @@ class HttpTest(BearerBase):
         with self.app() as http:
             response = self.post(http, "t10")
             self.assertEqual(response.status_code, 401)
-            self.assertIn("resource_metadata=", response.headers["www-authenticate"])
+            self.assertIn(
+                "resource_metadata=", response.headers["www-authenticate"]
+            )
         self.assertEqual(self.stub.calls, [])
 
     def test_secret_still_works_without_a_bearer(self):
@@ -235,7 +247,10 @@ class SecretModeUnchangedTest(unittest.TestCase):
     def setUp(self):
         env = patch.dict(
             os.environ,
-            {"ADNERO_MULTI_TENANT": "1", "GOOGLE_ADS_MCP_SHARED_SECRET": "k" * 32},
+            {
+                "ADNERO_MULTI_TENANT": "1",
+                "GOOGLE_ADS_MCP_SHARED_SECRET": "k" * 32,
+            },
         )
         env.start()
         self.addCleanup(env.stop)
@@ -256,7 +271,9 @@ class SecretModeUnchangedTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 401)
                 self.assertNotIn("www-authenticate", response.headers)
                 self.assertEqual(
-                    http.get("/.well-known/oauth-protected-resource").status_code,
+                    http.get(
+                        "/.well-known/oauth-protected-resource"
+                    ).status_code,
                     401,
                 )
                 self.assertEqual(
@@ -338,7 +355,9 @@ class LoginCustomerIdTest(unittest.TestCase):
 class AuthorizationError(Exception):
     def __init__(self, message):
         super().__init__(message)
-        self.failure = SimpleNamespace(errors=[SimpleNamespace(message=message)])
+        self.failure = SimpleNamespace(
+            errors=[SimpleNamespace(message=message)]
+        )
 
 
 class ListAccessibleTest(unittest.TestCase):

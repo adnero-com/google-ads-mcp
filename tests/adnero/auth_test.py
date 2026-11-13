@@ -107,7 +107,9 @@ class MultiTenantTest(unittest.TestCase):
         with TestClient(app) as http:
             health = http.get("/healthz")
             self.assertEqual(health.status_code, 200)
-            self.assertEqual(health.json(), {"ok": True, "configured": True, "bearer": False},
+            self.assertEqual(
+                health.json(),
+                {"ok": True, "configured": True, "bearer": False},
             )
             body = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
             accept = {"accept": "application/json, text/event-stream"}

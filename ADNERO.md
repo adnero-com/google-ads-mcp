@@ -63,9 +63,28 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
       `validateOnly`/`partialFailure` (they are never sent either: a write is atomic). Apply needs that checksum;
       the SEP-2322 elicitation path works as for the other writes. Google's errors come back as its own message,
       status and first errorCode (e.g. `AuthorizationError.CUSTOMER_NOT_ENABLED`).
-- API version: `GOOGLE_ADS_API_VERSION` (default `v26`, must match `^v\d{2}$`, else the default with a warning),
-  read by `adnero_auth.api_version()`; every `GoogleAdsClient`/`get_service`, the REST passthrough and the
-  discovery resource use it. Minor releases (v26.2) are served on the major's endpoint. `google-ads>=35.1.0,<36`.
+- API version: ONE constant, `ads_mcp/api_version.py` `API_VERSION = "v26"`. Every `GoogleAdsClient`, every
+  `get_service` / `get_type` call (`version=API_VERSION`, guarded by `tests/core/version_test.py`), the REST
+  passthrough and the discovery resource use it; `adnero_auth.api_version()` returns it. There is no env override
+  any more: `GOOGLE_ADS_API_VERSION` is ignored with a warning. Minor releases (v26.2) are served on the major's
+  endpoint. Bump the constant, the `google-ads>=35.1.0,<36` pin and the checked-in schemas together.
+- Pure core (`ads_mcp/core/`): no I/O, failures as `Result` values (`core/result.py`).
+  - `core/plain.py`: every value a tool returns is plain data with enum NAMES at every depth (nested messages too:
+    `policy_summary.policy_topic_entries[].type` is `LIMITED`, not 4) and API keys (`type`, never proto-plus's
+    `type_`). `utils.format_output_value` delegates to it.
+  - `core/errors.py`: every `GoogleAdsException` becomes `{request_id, errors[]: {code, error_type, message,
+    field_path, operation_index, trigger, exemptible, policy_topics, fix}}`. `utils.format_google_ads_error` renders
+    one readable line per error, then `errors_json: <that JSON>`. Fix hints live in one table (`FIX_HINTS`):
+    ASPECT_RATIO_NOT_ALLOWED, AD_TYPE_CANNOT_BE_PAUSED, BILLING_NOT_ON_MONTHLY_INVOICING, NO_EFFECTIVE_BILLING,
+    UNRECOGNIZED_FIELD / BAD_FIELD_NAME and more. Policy findings are never auto-exempted: `exemptible` tells a
+    person they may ask.
+  - `core/gaql.py`: `search_search` takes a GAQL `query` OR `resource` + `fields` (+ `conditions`, `orderings`,
+    `limit`), and answers one bounded page: `max_rows` (default 500, max 10,000), a ~200 KB byte cap, and
+    `next_page_token` (our cursor over Google's 10,000-row pages, bound to the customer and query). One call = one
+    Google page = one operation. The answer is `{rows, row_count, next_page_token, stopped_by, query}` (was a bare
+    list).
+- Tests: `pytest` (nox runs it; it also runs the unittest classes). CI runs on PRs into `adnero/multi-tenant`
+  too, without upstream's Gemini LLM job.
 - `GOOGLE_ADS_REST_BASE`: the REST host for the `api` tools (default `https://googleads.googleapis.com`; tests and
   e2e point it at a stub).
 - Our tools follow MCP 2026-07-28. Each one has:

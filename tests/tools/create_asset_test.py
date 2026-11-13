@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, create_autospec, patch
 
 from fastmcp.exceptions import ToolError
 from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.v25.services.services.asset_service import (
+from google.ads.googleads.v26.services.services.asset_service import (
     AssetServiceClient,
 )
 from google.auth.credentials import AnonymousCredentials

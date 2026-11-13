@@ -21,6 +21,7 @@ import os
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp.tools import assets_mcp
 import ads_mcp.utils as utils
@@ -134,7 +135,9 @@ async def upload_video_asset(
         ga_client, "YouTubeVideoUploadService"
     )
 
-    req = ga_client.get_type("CreateYouTubeVideoUploadRequest")
+    req = ga_client.get_type(
+        "CreateYouTubeVideoUploadRequest", version=API_VERSION
+    )
     req.customer_id = cleaned_customer_id
 
     you_tube_video_upload = req.you_tube_video_upload
@@ -142,7 +145,7 @@ async def upload_video_asset(
     you_tube_video_upload.video_description = video_description
 
     privacy_enum = ga_client.get_type(
-        "YouTubeVideoPrivacyEnum"
+        "YouTubeVideoPrivacyEnum", version=API_VERSION
     ).YouTubeVideoPrivacy
     you_tube_video_upload.video_privacy = getattr(privacy_enum, privacy_upper)
 

@@ -15,10 +15,10 @@
 """Test cases for the utils module."""
 
 import unittest
-from google.ads.googleads.v25.enums.types.campaign_status import (
+from google.ads.googleads.v26.enums.types.campaign_status import (
     CampaignStatusEnum,
 )
-from google.ads.googleads.v25.common.types.metrics import Metrics
+from google.ads.googleads.v26.common.types.metrics import Metrics
 from google.protobuf.field_mask_pb2 import FieldMask
 
 from ads_mcp import utils
@@ -278,12 +278,12 @@ class TestUtils(unittest.TestCase):
         """Tests formatting of GoogleAdsException into readable error messages."""
         from unittest.mock import MagicMock
         from google.ads.googleads.errors import GoogleAdsException
-        from google.ads.googleads.v25.errors.types.errors import (
+        from google.ads.googleads.v26.errors.types.errors import (
             ErrorCode,
             GoogleAdsError,
             GoogleAdsFailure,
         )
-        from google.ads.googleads.v25.errors.types.request_error import (
+        from google.ads.googleads.v26.errors.types.request_error import (
             RequestErrorEnum,
         )
 
