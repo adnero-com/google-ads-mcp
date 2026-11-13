@@ -187,6 +187,11 @@ class _Ref:
         return isinstance(other, _Ref) and other.data is self.data
 
 
+def operation_schema(data: Mapping, gaql: str, kind: str) -> Mapping:
+    """The served operation schema (the compiled validator's, so it is built once per process)."""
+    return _validator(gaql, kind, _Ref(data)).schema
+
+
 def check_operation(
     data: Mapping, gaql: str, operation: Any, prefix: tuple
 ) -> list[Problem]:

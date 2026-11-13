@@ -225,7 +225,12 @@ lowerCamelCase paths (oneof branches not named are pruned), `brief` drops descri
 - `schema_get_enum` {enum}: values + descriptions. No Google call.
 - `schema_check_query` {query}: GAQL checked against field metadata without running it (`ads_mcp/schema/gaql.py`).
   1 Google request when a named field is not cached yet.
-- `api_mutate` checks its body against these schemas before Google sees it (`ads_mcp/schema/validate.py`): problems come
+- `api_mutate` first puts its body in canonical REST form (`ads_mcp/schema/normalize.py`), guided by the operation's
+  schema and accepting only what Google's own JSON parser accepts: snake_case keys whose camelCase name is a field
+  there are renamed, int64 integers become digit strings. The answer's `next_step` starts with one line saying what
+  was normalized; the checksum covers the normalized body (the snake_case and camelCase spellings of one change get
+  the same checksum).
+- `api_mutate` then checks the body against these schemas before Google sees it (`ads_mcp/schema/validate.py`): problems come
   back as a ToolError holding `{"error": "SCHEMA_INVALID", "problems": [{path (JSON pointer), code, message}]}`,
   codes REQUIRED, UNKNOWN_FIELD (with the camelCase name when that is the fix), ONE_OF, IMMUTABLE (in an update),
   BAD_ENUM, BAD_TYPE (int64 is a digit string), BAD_OPERATION, UNKNOWN_RESOURCE.

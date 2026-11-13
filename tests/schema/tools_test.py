@@ -218,7 +218,7 @@ class ApiMutateSchemaTest(unittest.TestCase):
                 {
                     "create": {
                         "name": "x",
-                        "campaign_budget": "customers/1/campaignBudgets/2",
+                        "campaign_budgett": "customers/1/campaignBudgets/2",
                     }
                 }
             ]
@@ -235,7 +235,7 @@ class ApiMutateSchemaTest(unittest.TestCase):
         self.assertEqual(answer["error"], "SCHEMA_INVALID")
         self.assertEqual(
             answer["problems"][0]["path"],
-            "/operations/0/create/campaign_budget",
+            "/operations/0/create/campaign_budgett",
         )
 
     def test_valid_body_is_previewed(self):
@@ -258,6 +258,46 @@ class ApiMutateSchemaTest(unittest.TestCase):
             )
         self.assertEqual(out.status, "PROPOSED")
         call.assert_called_once()
+
+    def test_what_google_accepts_is_normalized_then_sent(self):
+        snake = {
+            "operations": [
+                {
+                    "update": {
+                        "resource_name": "customers/1234567890/campaignBudgets/5",
+                        "amount_micros": 5000000,
+                    },
+                    "update_mask": "amount_micros",
+                }
+            ]
+        }
+        canonical = {
+            "operations": [
+                {
+                    "update": {
+                        "resourceName": "customers/1234567890/campaignBudgets/5",
+                        "amountMicros": "5000000",
+                    },
+                    "updateMask": "amount_micros",
+                }
+            ]
+        }
+        path = "customers/1234567890/campaignBudgets:mutate"
+        with patch.object(api, "_call", return_value=(200, {})) as call:
+            out = api.mutate(customer_id="1234567890", path=path, body=snake)
+            same = api.mutate(
+                customer_id="1234567890", path=path, body=canonical
+            )
+        sent = call.call_args_list[0].args[2]
+        self.assertEqual(sent["operations"], canonical["operations"])
+        self.assertTrue(
+            out.next_step.startswith("Normalized: 3 snake_case key(s)")
+        )
+        self.assertIn("1 int64 number(s)", out.next_step)
+        self.assertEqual(
+            out.checksum, same.checksum
+        )  # one change, one checksum
+        self.assertFalse(same.next_step.startswith("Normalized"))
 
 
 if __name__ == "__main__":

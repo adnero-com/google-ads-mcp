@@ -37,6 +37,7 @@ from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp.core import plan as plan_core
+from ads_mcp.schema import normalize as schema_normalize
 from ads_mcp.schema import store as schema_store
 from ads_mcp.schema import validate as schema_validate
 import ads_mcp.utils as utils
@@ -181,6 +182,14 @@ def clean_body(body: Any) -> dict:
             f"Error: 'body' is at most {MAX_BODY_CHARS:,} characters of JSON; split the change."
         )
     return {k: v for k, v in body.items() if k not in _CONTROL_KEYS}
+
+
+def schema_normalize_body(resource: str, body: dict) -> tuple[dict, str | None]:
+    """The body in canonical REST form (camelCase keys, int64 digit strings), and one line saying what changed."""
+    fixed, notes = schema_normalize.normalize_body(
+        schema_store.load(), resource, body
+    )
+    return fixed, schema_normalize.summary(notes)
 
 
 def schema_check(resource: str, body: dict) -> None:
@@ -477,10 +486,14 @@ def mutate(
     cid = m.customer_id_of(customer_id)
     p = contained_path(cid, path)
     resource = mutate_resource(cid, p)
-    clean = clean_body(body)
+    clean, normalized = schema_normalize_body(resource, clean_body(body))
     ops = operations_of(clean)
     schema_check(resource, clean)
     items = change_items(resource, ops)
+
+    def noted(text: str) -> str:
+        return f"{normalized} {text}" if normalized else text
+
     items_out = m._items_out(items)
 
     def _validate() -> None:
@@ -493,7 +506,9 @@ def mutate(
             customer_id=cid,
             change_items=items_out,
             resource_names=resource_names_of(data),
-            next_step="Done. Read it back with search_search or api_read to confirm, or report the change to the person.",
+            next_step=noted(
+                "Done. Read it back with search_search or api_read to confirm, or report the change to the person."
+            ),
         )
 
     # The plan binds the customer, the path and the cleaned body (plans.py: HMAC with the server secret).
@@ -509,4 +524,5 @@ def mutate(
         ctx=ctx,
         validate=_validate,
         commit=_commit,
+        notes=[normalized] if normalized else (),
     )
