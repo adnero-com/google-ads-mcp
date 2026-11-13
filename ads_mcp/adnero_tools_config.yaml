@@ -17,9 +17,13 @@ namespaces:
       - upload_html5: true
       - add_youtube: true
       - list: true
-  accounts: true  # list_clients, list_accessible
+  accounts: true  # list_clients, list_accessible, get
   campaigns: true
   keywords: true
-  app: true  # check, campaign_create, ad_group_create, ad_update, campaign_update
+  app: true  # check, campaign_create, ad_group_create, ad_update, campaign_update, report
   api: true  # read, mutate (raw REST passthrough under one customer)
   schema: true  # list_resources, get_resource, get_mutate, get_enum, check_query
+  lookup: true  # geo, language
+  resolve:
+    prefix: ""  # the tool is just `resolve`
+  policy: true  # report

@@ -26,6 +26,7 @@ from ads_mcp.coordinator import mcp
 from ads_mcp.resources import (
     discovery,
     metrics,
+    recipes,
     release_notes,
     segments,
 )  # noqa: F401

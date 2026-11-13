@@ -23,6 +23,7 @@ CONFIG = os.path.join(
 # (packages/mcp-gateway); change both together.
 EXPECTED_TOOLS = sorted(
     [
+        "accounts_get",
         "accounts_list_accessible",
         "accounts_list_clients",
         "api_mutate",
@@ -32,6 +33,7 @@ EXPECTED_TOOLS = sorted(
         "app_campaign_create",
         "app_campaign_update",
         "app_check",
+        "app_report",
         "assets_add_youtube",
         "assets_list",
         "assets_upload_html5",
@@ -48,7 +50,11 @@ EXPECTED_TOOLS = sorted(
         "keywords_remove",
         "labels_manage_label_associations",
         "labels_manage_labels",
+        "lookup_geo",
+        "lookup_language",
         "metadata_get_resource_metadata",
+        "policy_report",
+        "resolve",
         "schema_check_query",
         "schema_get_enum",
         "schema_get_mutate",
@@ -189,7 +195,17 @@ class ToolSetTest(unittest.TestCase):
             t
             for t in tools
             if t["name"].split("_")[0]
-            in ("accounts", "api", "app", "campaigns", "keywords", "schema")
+            in (
+                "accounts",
+                "api",
+                "app",
+                "campaigns",
+                "keywords",
+                "lookup",
+                "policy",
+                "resolve",
+                "schema",
+            )
             or t["name"].startswith(
                 ("assets_upload_", "assets_add_", "assets_list")
             )
