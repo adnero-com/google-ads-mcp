@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
+from ads_mcp.reads import google
 import ads_mcp.utils as utils
 
 accounts_mcp = FastMCP("accounts")
@@ -112,7 +113,8 @@ def list_clients(
     if not 1 <= int(page_size) <= MAX_PAGE:
         raise ToolError(f"page_size must be 1 to {MAX_PAGE}.")
     start = int(page_token) if page_token and page_token.isdigit() else 0
-    rows = m.search_rows(manager, _QUERY.format(depth=int(depth)))
+    with google.refusals():
+        rows = m.search_rows(manager, _QUERY.format(depth=int(depth)))
     accounts = [
         ClientAccount(
             customer_id=str(r.customer_client.id),
@@ -225,7 +227,8 @@ def list_accessible() -> AccessibleAccounts:
     """
     m.use_login(None)
     service = utils.get_googleads_service("CustomerService")
-    names = list(service.list_accessible_customers().resource_names)
+    with google.refusals():
+        names = list(service.list_accessible_customers().resource_names)
     ids = [utils.extract_id(n) for n in names]
     return AccessibleAccounts(
         accounts=[_check_account(i) for i in ids[:MAX_ACCESSIBLE]],

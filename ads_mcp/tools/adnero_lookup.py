@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
 from ads_mcp.reads import account as acc
+from ads_mcp.reads import google
 from ads_mcp.reads import lookup as lk
 from ads_mcp.reads.common import id_list
 from ads_mcp.tools.adnero_accounts import accounts_mcp
@@ -46,7 +47,8 @@ READ = ToolAnnotations(
 
 
 def _search(customer_id: str, query: str) -> list:
-    return m.search_rows(customer_id, query)
+    with google.refusals():  # Google's refusals come back structured
+        return m.search_rows(customer_id, query)
 
 
 def _identity(customer_id: str) -> Any:
@@ -68,7 +70,8 @@ def _suggest(
         request.geo_targets.geo_target_constants.extend(
             f"geoTargetConstants/{i}" for i in ids
         )
-    return service.suggest_geo_target_constants(request=request)
+    with google.refusals():
+        return service.suggest_geo_target_constants(request=request)
 
 
 # ---------------------------------------------------------------- accounts_get
