@@ -1,0 +1,32 @@
+{
+ "common": {
+  "entries": 376,
+  "gzip_bytes": 67472,
+  "json_bytes": 379885,
+  "sha256": "d87b82456c8e1528d408c3938a968693d18d475e1539f9b6ee0c5f85645fd8ca"
+ },
+ "enums": {
+  "entries": 825,
+  "gzip_bytes": 89120,
+  "json_bytes": 434573,
+  "sha256": "bfc5ae82ea142a101030e3defa4cd61790e1d49fc4aca2410398cef721c84dc2"
+ },
+ "index": {
+  "entries": 194,
+  "gzip_bytes": 14543,
+  "json_bytes": 103032,
+  "sha256": "649bff2174823d53dfc352b7df3e1cc4fdd3f9a74537fd85866ee3a2a1c6500b"
+ },
+ "resources": {
+  "entries": 430,
+  "gzip_bytes": 90721,
+  "json_bytes": 524209,
+  "sha256": "9d2a2f7f772adbd06be5b7a00027db6e3be589b6bd13240ef2a745758e111cd4"
+ },
+ "services": {
+  "entries": 693,
+  "gzip_bytes": 70062,
+  "json_bytes": 551905,
+  "sha256": "630e2172133032c29fc0e7618ddd8102f3469a500c5f71dd84cf388f45c9a673"
+ }
+}

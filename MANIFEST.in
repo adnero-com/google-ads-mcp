@@ -3,3 +3,6 @@ include ads_mcp/*.json
 include ads_mcp/*.txt
 #include the bundled default tools configuration
 include ads_mcp/*.yaml
+#include the generated Google Ads JSON Schemas (scripts/gen_schemas.py)
+include ads_mcp/schemas/*/*.json.gz
+include ads_mcp/schemas/*/manifest.json
