@@ -143,6 +143,9 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     dates), geo (+negative) and language criteria, ad group (-3, ENABLED: the campaign is the one switch), user list
     criteria, App ad (ENABLED, the sub-type's ad info). Apply asks for MUTABLE_RESOURCE and reads back
     primary_status and the ad's policy summary into `read_back`.
+    EU self-declaration: `contains_eu_political_advertising` defaults to false only when every positive location
+    is outside the EU; with an EU country targeted (`rules/app.py` `EU_COUNTRY_GEO_IDS`, the 27 member states) or
+    no location at all, the caller must state it (refused before Google, with the fix). app_check checks it too.
   - `ad_group_create`: ad group PAUSED + its App ad (type from the campaign), checked first.
   - `ad_update`: add/remove texts and assets of an App ad in place (ad_operation, the AdService update inside
     the one Mutate), update mask only on changed fields, before/after in change_items; the plan binds the ad's

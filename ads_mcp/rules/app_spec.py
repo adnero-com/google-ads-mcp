@@ -30,6 +30,10 @@ class AppSpec(BaseModel):
     youtube_video_asset_ids: tuple[str, ...] = ()
     html5_asset_ids: tuple[str, ...] = ()
     user_list_ids: tuple[str, ...] = ()
+    contains_eu_political_advertising: bool | None = Field(
+        default=None,
+        description="Required when any targeted location is in the EU (or none is set); else defaults to false.",
+    )
 
 
 class ConversionActionFact(BaseModel):

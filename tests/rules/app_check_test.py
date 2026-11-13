@@ -138,7 +138,16 @@ def run(**changes):
             False,
         ),
         ({"app_id": "com.untracked"}, ["APP_NOT_TRACKED"], True),
-        ({"geo_target_ids": ()}, ["NO_GEO"], True),
+        (
+            {"geo_target_ids": ()},
+            ["EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED", "NO_GEO"],
+            False,
+        ),
+        (
+            {"geo_target_ids": (), "contains_eu_political_advertising": False},
+            ["NO_GEO"],
+            True,
+        ),
         (
             {"excluded_geo_target_ids": ("2840",)},
             ["GEO_BOTH_INCLUDED_AND_EXCLUDED"],
@@ -209,3 +218,44 @@ def test_needed_ids_dedupes_in_order():
         }
     )
     assert needed_ids(spec) == ("10", "11", "20", "30")
+
+
+@pytest.mark.parametrize(
+    "geos, declared, needs_statement, sent",
+    [
+        (("2840",), None, False, False),  # US only: defaults to false
+        (("2124", "2826"), None, False, False),  # Canada, UK (not EU)
+        (("2276",), None, True, None),  # Germany
+        (("2840", "2250"), None, True, None),  # any EU country among them
+        ((), None, True, None),  # no location: everywhere, the EU included
+        (("2276",), False, False, False),
+        (("2276",), True, False, True),
+        (("2840",), True, False, True),
+    ],
+)
+def test_eu_declaration(geos, declared, needs_statement, sent):
+    from ads_mcp.rules.app_targeting import eu_declaration, eu_problems
+
+    spec = AppSpec(
+        **{
+            **BASE,
+            "geo_target_ids": geos,
+            "contains_eu_political_advertising": declared,
+        }
+    )
+    problems = eu_problems(spec)
+    assert bool(problems) is needs_statement
+    if needs_statement:
+        assert problems[0].fix and "ask the person" in problems[0].fix.lower()
+    else:
+        assert eu_declaration(spec) is sent
+
+
+def test_eu_set_is_the_27_member_states():
+    from ads_mcp.rules.app import EU_COUNTRY_GEO_IDS
+
+    assert len(EU_COUNTRY_GEO_IDS) == 27
+    assert {"2276", "2250", "2380", "2724"} <= EU_COUNTRY_GEO_IDS
+    assert (
+        not {"2840", "2826", "2756", "2578"} & EU_COUNTRY_GEO_IDS
+    )  # US, UK, Switzerland, Norway

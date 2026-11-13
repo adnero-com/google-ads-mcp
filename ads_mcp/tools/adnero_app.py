@@ -136,6 +136,7 @@ def spec_of(
     youtube_video_asset_ids,
     html5_asset_ids,
     user_list_ids,
+    contains_eu_political_advertising: bool | None = None,
 ) -> AppSpec:
     """The tool arguments as an AppSpec (ids checked as digits)."""
     if kind not in R.AD_SHAPES:
@@ -170,6 +171,7 @@ def spec_of(
         ),
         html5_asset_ids=_ids(html5_asset_ids, "html5_asset_ids"),
         user_list_ids=_ids(user_list_ids, "user_list_ids"),
+        contains_eu_political_advertising=contains_eu_political_advertising,
     )
 
 
@@ -200,6 +202,7 @@ def check(
     youtube_video_asset_ids: list[str] | None = None,
     html5_asset_ids: list[str] | None = None,
     user_list_ids: list[str] | None = None,
+    contains_eu_political_advertising: bool | None = None,
     login_customer_id: str | int | None = None,
 ) -> CheckReport:
     """Checks an App campaign (install, engagement or pre-registration) before it is created. Changes nothing.
@@ -231,6 +234,8 @@ def check(
         youtube_video_asset_ids: YOUTUBE_VIDEO asset ids (assets_add_youtube).
         html5_asset_ids: MEDIA_BUNDLE asset ids (assets_upload_html5; install only).
         user_list_ids: User lists (engagement: required).
+        contains_eu_political_advertising: Required when an EU country is targeted or no location is set
+            (ask the person); otherwise false.
         login_customer_id: The manager (MCC) account to call through.
     """
     m.use_login(login_customer_id)
@@ -252,5 +257,6 @@ def check(
         youtube_video_asset_ids,
         html5_asset_ids,
         user_list_ids,
+        contains_eu_political_advertising,
     )
     return check_spec(spec, read_facts(cid, spec, login_customer_id))

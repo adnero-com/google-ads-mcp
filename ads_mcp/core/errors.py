@@ -36,6 +36,14 @@ FIX_HINTS: Mapping[tuple[str | None, str], str] = {
         "Not a broken call: the account has no active billing setup, so Google has no identity verification to "
         "report. Set up billing in the Google Ads UI first."
     ),
+    (None, "MISSING_EU_POLITICAL_ADVERTISING_SELF_DECLARATION"): (
+        "A targeted location is in the EU: the campaign must state contains_eu_political_advertising. Ask the "
+        "person, then pass it explicitly (app_campaign_create takes it)."
+    ),
+    (None, "EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED"): (
+        "A targeted location is in the EU: the campaign must state contains_eu_political_advertising. Ask the "
+        "person, then pass it explicitly."
+    ),
     ("query_error", "UNRECOGNIZED_FIELD"): _SCHEMA_HINT,
     ("query_error", "BAD_FIELD_NAME"): _SCHEMA_HINT,
     ("query_error", "BAD_RESOURCE_TYPE_IN_FROM_CLAUSE"): (

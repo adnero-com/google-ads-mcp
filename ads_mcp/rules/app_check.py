@@ -12,7 +12,11 @@ from ads_mcp.rules import app as R
 from ads_mcp.rules.app_creative import check_counts, check_image, check_texts
 from ads_mcp.rules.app_spec import AccountFacts, AppSpec, CheckReport
 from ads_mcp.rules.app_goal import check_app_id, check_goal
-from ads_mcp.rules.app_targeting import audience_problems, geo_problems
+from ads_mcp.rules.app_targeting import (
+    audience_problems,
+    eu_problems,
+    geo_problems,
+)
 
 
 def conversion_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
@@ -158,6 +162,7 @@ def check(spec: AppSpec, facts: AccountFacts) -> CheckReport:
         + asset_problems(spec, facts)
         + audience_problems(spec, facts)
         + geo_problems(spec)
+        + eu_problems(spec)
     )
     return CheckReport(
         ok=not any(p.severity == "ERROR" for p in problems),

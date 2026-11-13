@@ -561,3 +561,45 @@ def test_set_status_explains_app_ads(google):
             customer_id="1", level="AD", ids=["8~9"], status="PAUSED"
         )
     assert google == []
+
+
+@pytest.mark.parametrize(
+    "geos, declared, sent",
+    [
+        (["2124"], None, "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"),
+        (["2276"], False, "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"),
+        (["2276"], True, "CONTAINS_EU_POLITICAL_ADVERTISING"),
+    ],
+)
+def test_eu_declaration_sent(google, geos, declared, sent):
+    _, p = account()
+    with p:
+        create.campaign_create(
+            **{
+                **BASE,
+                "geo_target_ids": geos,
+                "excluded_geo_target_ids": [],
+                "contains_eu_political_advertising": declared,
+            }
+        )
+    assert (
+        google[-1]
+        .ops[1]
+        .campaign_operation.create.contains_eu_political_advertising.name
+        == sent
+    )
+
+
+@pytest.mark.parametrize("geos", [["2276"], ["2124", "2380"], []])
+def test_eu_targeting_needs_a_statement(google, geos):
+    _, p = account()
+    with (
+        p,
+        pytest.raises(
+            ToolError, match="EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED"
+        ),
+    ):
+        create.campaign_create(
+            **{**BASE, "geo_target_ids": geos, "excluded_geo_target_ids": []}
+        )
+    assert google == []

@@ -75,10 +75,26 @@ IMAGE_RATIOS: tuple[ImageRatio, ...] = (
     ImageRatio("1.91:1", 1.91, 600, 314),
     ImageRatio("4:5", 0.8, 320, 400),
 )
-# The Help Center says 1%, but Google refused 881x1092 (0.84% off 4:5) and 2048x1081 (0.81% off 1.91:1) live
-# (ASPECT_RATIO_NOT_ALLOWED, 2026-11-13). 0.5% passes every recommended size and nothing Google refused.
+# The Help Center says 1%; Google is stricter. Live on beta (2026-11-13, App ad images):
+#   refused  2048x1081 (0.81% off 1.91:1)   ASPECT_RATIO_NOT_ALLOWED
+#   refused   881x1092 (0.85% off 4:5)      ASPECT_RATIO_NOT_ALLOWED
+#   accepted 2048x1070 (0.21% off 1.91:1)
+#   accepted 1602x2002 (0.03% off 4:5)
+# 0.5% sits between them: it passes every accepted size and every recommended size, and nothing refused.
 RATIO_TOLERANCE = 0.005
 IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+# Geo target constant ids of the 27 EU member states (country ids are 2000 + ISO 3166 numeric). A campaign that
+# targets any of them (or no location at all: everywhere) must state contains_eu_political_advertising itself;
+# v26 makes the declaration optional only when every positive location is outside the EU. A region or city inside
+# the EU is not in this set: Google then refuses with MISSING_EU_POLITICAL_ADVERTISING_SELF_DECLARATION.
+EU_COUNTRY_GEO_IDS: frozenset[str] = frozenset(
+    {
+        "2040", "2056", "2100", "2191", "2196", "2203", "2208", "2233", "2246",
+        "2250", "2276", "2300", "2348", "2372", "2380", "2428", "2440", "2442",
+        "2470", "2528", "2616", "2620", "2642", "2703", "2705", "2724", "2752",
+    }
+)  # fmt: skip
 IMAGE_MIME_TYPES = ("IMAGE_JPEG", "IMAGE_PNG")
 MAX_IMAGES = 20
 MAX_VIDEOS = 20
