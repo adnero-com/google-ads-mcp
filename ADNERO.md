@@ -243,3 +243,29 @@ lowerCamelCase paths (oneof branches not named are pruned), `brief` drops descri
     the body omits it. Fields in the body that the mask does not name are ignored, as Google does.
 - The Discovery resource follows `API_VERSION` and is cached per process by its `revision` (re-checked daily, a
   failed re-check serves the cache).
+## Read tools v2 (`ads_mcp/tools/adnero_lookup.py`, `adnero_reports.py`; pure parts in `ads_mcp/reads/`)
+
+Enums are returned as NAMES, int64 ids as strings, money in account currency units. Each costs what its
+docstring says (one GAQL search = 1 operation).
+- `accounts_get` {customer_id, identity_verification?}: status, currency, time zone, auto-tagging, conversion
+  tracking, EU political declaration; identity verification through IdentityVerificationService. Google refusing that
+  read with BILLING_NOT_ON_MONTHLY_INVOICING / NO_EFFECTIVE_BILLING gives `{verification: "not_readable_via_api",
+  reason}`, never "not verified"; another refusal gives `unknown` with Google's reason (the account read still
+  answers). 2 operations (1 without verification).
+- `lookup_geo` {names | ids (≤25), country?, locale?}: SuggestGeoTargetConstants → id, name, canonical name, type,
+  country, status, EU declaration flag, reach. 1 operation.
+- `lookup_language` {customer_id, query?}: language constants (cached per process). 1 operation the first time.
+- `resolve` {customer_id, kind: campaign|ad_group|asset|conversion_action|user_list|label|campaign_budget, name,
+  match: exact|contains}: ids by name, `ambiguous` when several (never guess). Mounted without a namespace prefix
+  (`resolve: {prefix: ""}` in adnero_tools_config.yaml). 1 operation.
+- `policy_report` {customer_id, campaign_id?, ad_group_id?, problems_only?}: campaigns → ad groups → ads → assets,
+  each with primary status + reasons, approval / review status, policy topics (type names, constrained countries
+  named), `exemptible_keys.ignorable_policy_topics` for restricting findings (never exempted here), and each
+  campaign's targeted / excluded locations with names. Caps: 500 ads, 2000 assets. 5-6 operations.
+- `app_report` {customer_id, campaign_id | ad_group_id, by: day|network|asset|combination|conversion_action,
+  date_preset | start+end}: cost, conversions (installs for install campaigns), value, CPA, ROAS; asset performance
+  labels; Google's top combinations (app_top_combination_view, assets named). 1 operation (2 for combination).
+- MCP resources `resource://recipes/app-install`, `.../app-engagement`, `.../app-pre-registration`
+  (`ads_mcp/resources/recipes.py`): steps + one atomic googleAds:mutate example body each.
+- `scripts/live_smoke_reads.py`: read-only live run of all of these against an account
+  (`GOOGLE_ADS_ACCESS_TOKEN` env; never in CI).
