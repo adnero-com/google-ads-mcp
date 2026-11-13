@@ -22,6 +22,9 @@ from ads_mcp.resources import discovery
 
 
 class DiscoveryTest(unittest.TestCase):
+    def setUp(self):
+        discovery._cache.clear()
+
     @mock.patch("urllib.request.urlopen")
     def test_get_discovery_document(self, mock_urlopen):
         # Setup mock response
@@ -47,3 +50,51 @@ class DiscoveryTest(unittest.TestCase):
             "https://googleads.googleapis.com/$discovery/rest?version=v26",
         )
         self.assertEqual(request_obj.headers.get("User-agent"), "Mozilla/5.0")
+
+
+class DiscoveryCacheTest(unittest.TestCase):
+    def setUp(self):
+        discovery._cache.clear()
+
+    def test_revision_of(self):
+        cases = [
+            ('{"revision": "20261110"}', "20261110"),
+            ("{}", ""),
+            ("not json", ""),
+            ("[]", ""),
+        ]
+        for text, want in cases:
+            with self.subTest(text=text):
+                self.assertEqual(discovery.revision_of(text), want)
+
+    def test_cached_by_revision_and_refreshed_daily(self):
+        answers = iter(
+            [
+                '{"revision": "1", "a": 1}',
+                '{"revision": "1", "a": 2}',  # same revision: the cached text stays
+                '{"revision": "2"}',
+            ]
+        )
+        first = '{"revision": "1", "a": 1}'
+        day = discovery.REFRESH_S
+        with mock.patch.object(
+            discovery, "_fetch", side_effect=lambda v: next(answers)
+        ) as fetch:
+            self.assertEqual(discovery.document("v26", now=0), first)
+            self.assertEqual(discovery.document("v26", now=100), first)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(discovery.document("v26", now=day + 1), first)
+            self.assertEqual(
+                discovery.document("v26", now=2 * day + 2), '{"revision": "2"}'
+            )
+            self.assertEqual(fetch.call_count, 3)
+
+    def test_a_failed_refresh_serves_the_cache(self):
+        discovery._cache["v26"] = ("1", 0.0, "cached")
+        down = OSError("down")
+        with mock.patch.object(discovery, "_fetch", side_effect=down):
+            later = discovery.REFRESH_S + 1
+            self.assertEqual(discovery.document("v26", now=later), "cached")
+            discovery._cache.clear()
+            with self.assertRaises(OSError):
+                discovery.document("v26", now=0)

@@ -37,6 +37,8 @@ from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp.core import plan as plan_core
+from ads_mcp.schema import store as schema_store
+from ads_mcp.schema import validate as schema_validate
 import ads_mcp.utils as utils
 
 api_mcp = FastMCP("api")
@@ -179,6 +181,22 @@ def clean_body(body: Any) -> dict:
             f"Error: 'body' is at most {MAX_BODY_CHARS:,} characters of JSON; split the change."
         )
     return {k: v for k, v in body.items() if k not in _CONTROL_KEYS}
+
+
+def schema_check(resource: str, body: dict) -> None:
+    """The body against the generated schemas (schema_get_mutate); a ToolError with JSON-pointer problems."""
+    problems = schema_validate.check_body(schema_store.load(), resource, body)
+    if problems:
+        raise ToolError(
+            json.dumps(
+                {
+                    "error": "SCHEMA_INVALID",
+                    "message": "Google was not called: fix these fields (schema_get_mutate shows the body).",
+                    "problems": [p.as_dict() for p in problems],
+                },
+                ensure_ascii=False,
+            )
+        )
 
 
 def checksum_of(customer_id: str, path: str, body: dict) -> str:
@@ -461,6 +479,7 @@ def mutate(
     resource = mutate_resource(cid, p)
     clean = clean_body(body)
     ops = operations_of(clean)
+    schema_check(resource, clean)
     items = change_items(resource, ops)
     items_out = m._items_out(items)
 
