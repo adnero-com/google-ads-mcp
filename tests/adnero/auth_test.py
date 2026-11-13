@@ -49,6 +49,11 @@ EXPECTED_TOOLS = sorted(
         "labels_manage_label_associations",
         "labels_manage_labels",
         "metadata_get_resource_metadata",
+        "schema_check_query",
+        "schema_get_enum",
+        "schema_get_mutate",
+        "schema_get_resource",
+        "schema_list_resources",
         "search_search",
     ]
 )
@@ -184,7 +189,7 @@ class ToolSetTest(unittest.TestCase):
             t
             for t in tools
             if t["name"].split("_")[0]
-            in ("accounts", "api", "app", "campaigns", "keywords")
+            in ("accounts", "api", "app", "campaigns", "keywords", "schema")
             or t["name"].startswith(
                 ("assets_upload_", "assets_add_", "assets_list")
             )

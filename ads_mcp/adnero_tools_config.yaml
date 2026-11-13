@@ -22,3 +22,4 @@ namespaces:
   keywords: true
   app: true  # check, campaign_create, ad_group_create, ad_update, campaign_update
   api: true  # read, mutate (raw REST passthrough under one customer)
+  schema: true  # list_resources, get_resource, get_mutate, get_enum, check_query

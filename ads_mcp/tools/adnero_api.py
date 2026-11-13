@@ -20,7 +20,6 @@ writes are ``<resource>:mutate`` bodies through the same propose and confirm as 
 The Google token is the request's own (never logged, nor is any body).
 """
 
-import hashlib
 import json
 import os
 import re
@@ -37,6 +36,9 @@ from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp.core import plan as plan_core
+from ads_mcp.schema import normalize as schema_normalize
+from ads_mcp.schema import store as schema_store
+from ads_mcp.schema import validate as schema_validate
 import ads_mcp.utils as utils
 
 api_mcp = FastMCP("api")
@@ -181,15 +183,30 @@ def clean_body(body: Any) -> dict:
     return {k: v for k, v in body.items() if k not in _CONTROL_KEYS}
 
 
-def checksum_of(customer_id: str, path: str, body: dict) -> str:
-    """sha256 hex of the canonical JSON of {customer_id, path, body} (sorted keys, no spaces, UTF-8)."""
-    canonical = json.dumps(
-        {"customer_id": customer_id, "path": path, "body": body},
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
+def schema_normalize_body(resource: str, body: dict) -> tuple[dict, str | None]:
+    """The body in canonical REST form (camelCase keys, int64 digit strings), and one line saying what changed."""
+    fixed, notes = schema_normalize.normalize_body(
+        schema_store.load(), resource, body
     )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return fixed, schema_normalize.summary(notes)
+
+
+def schema_check(resource: str, body: dict, customer_id: str) -> None:
+    """The body against the generated schemas (schema_get_mutate); a ToolError with JSON-pointer problems."""
+    problems = schema_validate.check_body(
+        schema_store.load(), resource, body, customer_id
+    )
+    if problems:
+        raise ToolError(
+            json.dumps(
+                {
+                    "error": "SCHEMA_INVALID",
+                    "message": "Google was not called: fix these fields (schema_get_mutate shows the body).",
+                    "problems": [p.as_dict() for p in problems],
+                },
+                ensure_ascii=False,
+            )
+        )
 
 
 def change_items(resource: str, ops: list) -> list[pac.ChangeItem]:
@@ -243,7 +260,11 @@ def resource_names_of(data: Any) -> list[str]:
 def google_error(
     status: int, raw: bytes, request_id: str | None = None
 ) -> ToolError:
-    """Google's own message, status and first errorCode (e.g. AuthorizationError.CUSTOMER_NOT_ENABLED)."""
+    """Google's own message, status and first errorCode (e.g. AuthorizationError.CUSTOMER_NOT_ENABLED).
+
+    A GoogleRefused: Google answered, nothing changed, so an apply's plan is released for a retry. (Timeouts and
+    network failures stay plain ToolErrors: whether Google applied it is unknown, the plan stays spent.)
+    """
     try:
         error = json.loads(raw.decode("utf-8")).get("error") or {}
     except (ValueError, AttributeError, UnicodeDecodeError):
@@ -271,7 +292,7 @@ def google_error(
     text += message
     if request_id:
         text += f" (request id {request_id})"
-    return ToolError(text)
+    return m.GoogleRefused(text)
 
 
 # ---------------------------------------------------------------- the edge
@@ -459,9 +480,14 @@ def mutate(
     cid = m.customer_id_of(customer_id)
     p = contained_path(cid, path)
     resource = mutate_resource(cid, p)
-    clean = clean_body(body)
+    clean, normalized = schema_normalize_body(resource, clean_body(body))
     ops = operations_of(clean)
+    schema_check(resource, clean, cid)
     items = change_items(resource, ops)
+
+    def noted(text: str) -> str:
+        return f"{normalized} {text}" if normalized else text
+
     items_out = m._items_out(items)
 
     def _validate() -> None:
@@ -474,7 +500,9 @@ def mutate(
             customer_id=cid,
             change_items=items_out,
             resource_names=resource_names_of(data),
-            next_step="Done. Read it back with search_search or api_read to confirm, or report the change to the person.",
+            next_step=noted(
+                "Done. Read it back with search_search or api_read to confirm, or report the change to the person."
+            ),
         )
 
     # The plan binds the customer, the path and the cleaned body (plans.py: HMAC with the server secret).
@@ -490,4 +518,5 @@ def mutate(
         ctx=ctx,
         validate=_validate,
         commit=_commit,
+        notes=[normalized] if normalized else (),
     )

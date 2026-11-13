@@ -1,5 +1,6 @@
 """The raw REST passthrough (api_read, api_mutate) and the pinned API version."""
 
+import hashlib
 import json
 import os
 import threading
@@ -11,6 +12,8 @@ from unittest.mock import patch
 from fastmcp.exceptions import ToolError
 
 from ads_mcp import adnero_auth, utils
+from ads_mcp import adnero_mutate as m
+from ads_mcp.core import plan as plan_core
 from ads_mcp.tools import adnero_api as api
 
 CID = "1234567890"
@@ -153,12 +156,11 @@ class ContainmentTest(unittest.TestCase):
                 "operations": [{"update": {"a": 2, "b": 1}}],
             }
         )
-        self.assertEqual(
-            api.checksum_of(CID, "p", a), api.checksum_of(CID, "p", b)
+        digest = lambda cid, body: plan_core.digest_of(
+            "api_mutate", cid, {"path": "p", "body": body}
         )
-        self.assertNotEqual(
-            api.checksum_of(CID, "p", a), api.checksum_of("1", "p", a)
-        )
+        self.assertEqual(digest(CID, a), digest(CID, b))
+        self.assertNotEqual(digest(CID, a), digest("1", a))
 
 
 class ReadTest(StubGoogle):
@@ -341,6 +343,73 @@ class MutateTest(StubGoogle):
         self.assertNotIn("validateOnly", sent)
         self.assertNotIn("partialFailure", sent)
         self.assertEqual(sent["operations"], self.BODY["operations"])
+
+    def test_a_self_computed_sha256_is_refused(self):
+        # The pre-v2 checksum was sha256 of {customer_id, path, body}: a model could compute it and apply
+        # without any preview. Only a plan the server issued applies.
+        clean = api.clean_body(self.BODY)
+        canonical = json.dumps(
+            {"customer_id": CID, "path": self.PATH, "body": clean},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        forged = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        self.server.seen.clear()
+        for kwargs in ({"checksum": forged}, {"plan_id": forged}):
+            with (
+                self.subTest(kwargs=list(kwargs)),
+                self.assertRaises(ToolError),
+            ):
+                api.mutate(
+                    customer_id=CID,
+                    path=self.PATH,
+                    body=self.BODY,
+                    validate_only=False,
+                    **kwargs,
+                )
+        self.assert_nothing_sent()
+
+    def test_a_refused_apply_releases_the_plan(self):
+        proposal = api.mutate(customer_id=CID, path=self.PATH, body=self.BODY)
+        self.reply(
+            lambda req: (
+                400,
+                {
+                    "error": {
+                        "code": 400,
+                        "status": "INVALID_ARGUMENT",
+                        "message": "no",
+                    }
+                },
+            )
+        )
+        with self.assertRaises(m.GoogleRefused):
+            api.mutate(
+                customer_id=CID,
+                path=self.PATH,
+                body=self.BODY,
+                validate_only=False,
+                plan_id=proposal.plan_id,
+            )
+        self.reply(  # Google accepts now: the same plan still applies
+            lambda req: (
+                200,
+                {
+                    "results": [
+                        {"resourceName": f"customers/{CID}/campaigns/11"}
+                    ]
+                },
+            )
+        )
+        done = api.mutate(
+            customer_id=CID,
+            path=self.PATH,
+            body=self.BODY,
+            validate_only=False,
+            plan_id=proposal.plan_id,
+        )
+        self.assertEqual(done.status, "APPLIED")
 
     def test_wrong_or_missing_checksum_is_refused(self):
         proposal = api.mutate(customer_id=CID, path=self.PATH, body=self.BODY)
