@@ -153,7 +153,7 @@ class TestCreateAsset(unittest.TestCase):
             with open(img_path, "wb") as f:
                 f.write(b"tampered_image_bytes")
             with self.assertRaisesRegex(
-                ToolError, "Invalid or mismatched checksum"
+                ToolError, "preview again with validate_only=true"
             ):
                 create_asset.create_asset(
                     customer_id="1234567890",
@@ -441,7 +441,7 @@ class TestCreateAsset(unittest.TestCase):
         self.assertEqual(self.mock_asset_service.mutate_assets.call_count, 1)
 
         with self.assertRaisesRegex(
-            ToolError, "Invalid or mismatched checksum"
+            ToolError, "preview again with validate_only=true"
         ):
             create_asset.create_asset(
                 customer_id="1234567890",

@@ -40,8 +40,8 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   `utils._create_credentials`, `utils._get_login_customer_id`,
   `utils._get_googleads_client` (endpoint, version), `utils.get_googleads_service_from_client` (version),
   `resources/discovery.py` (version) and `server.run_server`.
-- New tools, each in its own module and namespace, using upstream's propose and
-  confirm (`validate_only` + `checksum`). Everything new is created PAUSED.
+- New tools, each in its own module and namespace, using propose and confirm (`validate_only` + a signed
+  `plan_id`, see "Plans" below). Everything new is created PAUSED, except App ads (they cannot be paused).
   - `accounts`: `list_accessible` (every account the login can reach, each marked usable or not; 1 operation per
     account, at most 50), `list_clients`
   - `campaigns`: `set_status`, `set_budget`, `set_bids`, `create`,
@@ -58,9 +58,9 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
       JSON is cut (`truncated: true`, a hint to page or narrow). 1 operation.
     - `mutate` (`path` = `customers/{id}/<camelCaseResource>:mutate`, `body` up to 60,000 characters of JSON,
       `validate_only`, `checksum`): at most 100 operations; any `remove` key (or a status set to REMOVED) inside
-      the operations is refused. The preview sends `"validateOnly": true`; the checksum is sha256 of the canonical
-      JSON (sorted keys, `,`/`:` separators, UTF-8) of `{customer_id, path, body}`, the body without the caller's
-      `validateOnly`/`partialFailure` (they are never sent either: a write is atomic). Apply needs that checksum;
+      the operations is refused. The preview sends `"validateOnly": true` and returns a plan bound to
+      `{customer_id, path, body}`, the body without the caller's `validateOnly`/`partialFailure` (they are never
+      sent either: a write is atomic). Apply needs that plan (`plan_id`, or `checksum` for older clients);
       the SEP-2322 elicitation path works as for the other writes. Google's errors come back as its own message,
       status and first errorCode (e.g. `AuthorizationError.CUSTOMER_NOT_ENABLED`).
 - API version: ONE constant, `ads_mcp/api_version.py` `API_VERSION = "v26"`. Every `GoogleAdsClient`, every
@@ -122,10 +122,39 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   - a Pydantic output (an `outputSchema`, plus `structuredContent` with its JSON text);
   - errors that say what to fix;
   - cursors on lists.
-  Writes return `MutationResult`: PROPOSED with a checksum, or APPLIED with the resource names. Called with
-  `validate_only=false` and no checksum, a client that declared form elicitation is asked through an
-  `input_required` result (SEP-2322). Google validates the change first, and the retry applies it only with the
-  person's acceptance and our checksum as `requestState`. Every other client gets the two-step flow.
+  Writes return `MutationResult`: PROPOSED with a `plan_id`, or APPLIED with the resource names (plus `read_back`
+  for App creates, and `notes`). Called with `validate_only=false` and no plan, a client that declared form
+  elicitation is asked through an `input_required` result (SEP-2322). Google validates the change first, and the
+  retry applies it only with the person's acceptance and a plan of ours as `requestState`. Every other client gets
+  the two-step flow.
+- **Plans (changed in v2; was an unkeyed sha256 "checksum").** `plan_id = p1.<expires_at>.<HMAC-SHA256>`, keyed by
+  the server secret, over the expiry and the digest of `{tool, customer_id, canonical args}` (`core/plan.py`,
+  `plans.py`). A model cannot mint one without the preview, any changed argument voids it, and it expires after
+  15 minutes. Every write goes through one gate (`adnero_mutate.gate`): the typed tools, `api_mutate`, and
+  upstream's `propose_and_confirm` (labels, assets_create_asset, upload_video_asset). Compatibility: the
+  answer carries the plan in both `plan_id` and `checksum`; our tools take `plan_id` and still accept `checksum`;
+  upstream's tools keep their `checksum` argument, which now carries the plan. A stored old sha256 checksum is
+  refused (re-preview). Secret: `GOOGLE_ADS_MCP_PLAN_SECRET` (32+ characters); unset, it is derived from
+  `GOOGLE_ADS_MCP_SHARED_SECRET` (HMAC with a fixed label); neither, a per-process random key with a warning.
+- App writes (namespace `app`):
+  - `campaign_create`: app_check's checks (errors refuse before Google, warnings become `notes`), then ONE
+    GoogleAdsService.Mutate with temp ids: budget (-1, not shared), campaign (-2, PAUSED, MULTI_CHANNEL + sub-type,
+    app setting, the goal's bidding, selective optimization, pre-registration goal type, EU declaration, day
+    dates), geo (+negative) and language criteria, ad group (-3, ENABLED: the campaign is the one switch), user list
+    criteria, App ad (ENABLED, the sub-type's ad info). Apply asks for MUTABLE_RESOURCE and reads back
+    primary_status and the ad's policy summary into `read_back`.
+  - `ad_group_create`: ad group PAUSED + its App ad (type from the campaign), checked first.
+  - `ad_update`: add/remove texts and assets of an App ad in place (ad_operation, the AdService update inside
+    the one Mutate), update mask only on changed fields, before/after in change_items; the plan binds the ad's
+    current content, so an ad changed since the preview is refused.
+  - `campaign_update`: budget, targets, conversion actions (replace), dates, add/remove targeting; refuses
+    app id, store, kind, a started start date, a target the goal does not use, pre-registration conversion actions,
+    shared budgets, each naming the rule (`rules/app_update.py`).
+  - `campaigns_set_status` level AD with PAUSED reads the ad types first (1 operation) and refuses App ads with
+    the reason (pause the ad group or campaign).
+- `scripts/live_smoke_validate_only.py`: a live smoke, NOT in CI, previews only, account 8396625493 through
+  manager 8868324827 (hard-coded); it needs `GOOGLE_ADS_ACCESS_TOKEN`, never prints it, and replaces the gate with
+  one that refuses any apply.
 - The server instructions are set in multi-tenant mode: where to start (`accounts_list_accessible` first), ready GAQL queries, the ops budget and the
   approval flow.
 - `ads_mcp/adnero_tools_config.yaml` (the tool set) and `Dockerfile.adnero`.

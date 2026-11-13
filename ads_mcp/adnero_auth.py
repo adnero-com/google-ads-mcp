@@ -409,16 +409,21 @@ Policy findings list their topics and whether a person may request an exemption:
 App campaigns: check the plan with app_check first (goal, conversion actions, texts, assets: problems with
 fixes; changes nothing). Images go up with assets_upload_image (an https URL; it must be 1:1, 1.91:1 or 4:5: other
 ratios are refused before Google), HTML5 zips with assets_upload_html5, YouTube videos with assets_add_youtube;
-assets_list shows sizes, ratio class and where each asset is used.
+assets_list shows sizes, ratio class and where each asset is used. app_campaign_create builds the whole campaign
+in one atomic request (budget, PAUSED campaign, targeting, ad group, App ad); app_ad_group_create adds an ad group
+(PAUSED) with its ad; app_ad_update changes an ad's texts and assets in place; app_campaign_update changes budget,
+targets, conversion actions, dates and targeting (app, store and kind never change). App ads cannot be paused:
+pause the ad group or campaign.
 
-Change with the campaigns_* and keywords_* tools. Every change is previewed first (validate_only=true: Google
-checks it, nothing changes) and applied only after the person approves (validate_only=false with the checksum).
-New campaigns, ad groups and ads are always created PAUSED; turning them on is campaigns_set_status. Ads and
-keywords are named 'adGroupId~id'.
+Change with the campaigns_*, keywords_* and app_* tools. Every change is previewed first (validate_only=true:
+Google checks it, nothing changes, the answer has a plan_id) and applied only after the person approves
+(validate_only=false, the SAME arguments and that plan_id, within 15 minutes; the server signs plans, so they
+cannot be made up, and any changed argument voids one). New campaigns and ad groups are always created PAUSED;
+turning them on is campaigns_set_status. Ads and keywords are named 'adGroupId~id'.
 
 When no typed tool covers a field, use the raw Google Ads REST API: api_read reads any resource of the account (GET
 under customers/{id}, or a googleAds:search POST), and api_mutate previews a raw '<resource>:mutate' body
-(validate_only=true, a checksum), then applies it with validate_only=false and that checksum after the person
+(validate_only=true, a plan_id), then applies it with validate_only=false and that plan_id after the person
 approves. It never removes: pause instead."""
 
 

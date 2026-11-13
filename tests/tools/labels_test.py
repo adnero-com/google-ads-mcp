@@ -505,7 +505,7 @@ class TestLabels(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(
-            ToolError, "Invalid or mismatched checksum"
+            ToolError, "preview again with validate_only=true"
         ):
             labels.manage_label_associations(
                 customer_id="1234567890",

@@ -28,6 +28,7 @@ from mcp.types import ToolAnnotations
 from ads_mcp.api_version import API_VERSION
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
+from ads_mcp.rules import app_build
 
 campaigns_mcp = FastMCP("campaigns")
 
@@ -97,16 +98,18 @@ def set_status(
     status: Status,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
     """Pauses or turns on campaigns, ad groups, ads or keywords (one level per call).
 
-    Costs 1 Google Ads operation per item on each call (the preview counts too).
+    App ads (App campaigns) cannot be paused: pausing one is refused with the reason; pause its ad group
+    (level AD_GROUP) or campaign instead. Costs 1 Google Ads operation per item on each call (the preview counts
+    too), +1 to read the ad types when pausing ads.
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
@@ -114,8 +117,9 @@ def set_status(
         level: CAMPAIGN, AD_GROUP, AD or KEYWORD.
         ids: Campaign or ad group ids; for AD 'adGroupId~adId'; for KEYWORD 'adGroupId~criterionId'.
         status: PAUSED or ENABLED.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -124,6 +128,11 @@ def set_status(
     if lvl not in _LEVELS or st not in ("PAUSED", "ENABLED"):
         raise ToolError("Error: unknown level or status.")
     targets = _ids_for(lvl, ids)
+    if lvl == "AD" and st == "PAUSED":
+        # App ads cannot be paused (AD_TYPE_CANNOT_BE_PAUSED): say so before Google does (1 search).
+        refusal = app_build.pause_refusal(_ad_types(cid, targets))
+        if refusal:
+            raise ToolError(refusal)
     op_field, collection, enum_name, _ = _LEVELS[lvl]
 
     def operations(client):
@@ -154,9 +163,27 @@ def set_status(
         operations=operations,
         change_items=items,
         validate_only=validate_only,
-        checksum=checksum,
+        checksum=plan_id or checksum,
         ctx=ctx,
     )
+
+
+def _ad_types(cid: str, targets: list[str]) -> list[tuple[str, str]]:
+    names = ",".join(f"'customers/{cid}/adGroupAds/{t}'" for t in targets)
+    rows = m.search_rows(
+        cid,
+        "SELECT ad_group.id, ad_group_ad.ad.id, ad_group_ad.ad.type FROM ad_group_ad "
+        f"WHERE ad_group_ad.resource_name IN ({names})",
+    )
+    return [
+        (
+            f"{r.ad_group.id}~{r.ad_group_ad.ad.id}",
+            getattr(
+                r.ad_group_ad.ad.type_, "name", str(r.ad_group_ad.ad.type_)
+            ),
+        )
+        for r in rows
+    ]
 
 
 def _campaign_budget(cid: str, campaign_id: str) -> tuple[str, int, bool]:
@@ -187,6 +214,7 @@ def set_budget(
     daily_budget_micros: int,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -194,17 +222,17 @@ def set_budget(
 
     Costs 1 Google Ads operation per item on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
         customer_id: The Google Ads account.
         campaign_id: The campaign.
         daily_budget_micros: New average daily budget in micros of the account currency (10 EUR = 10000000).
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -242,7 +270,7 @@ def set_budget(
         operations=operations,
         change_items=items,
         validate_only=validate_only,
-        checksum=checksum,
+        checksum=plan_id or checksum,
         ctx=ctx,
     )
 
@@ -265,6 +293,7 @@ def set_bids(
     target_roas: float | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -272,9 +301,8 @@ def set_bids(
 
     Costs 1 Google Ads operation per item on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
@@ -284,8 +312,9 @@ def set_bids(
         cpc_bid_micros: Max CPC in micros.
         target_cpa_micros: Ad group target CPA in micros (Maximize conversions campaigns).
         target_roas: Ad group target ROAS as a ratio (3.5 = 350%).
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -337,7 +366,7 @@ def set_bids(
         operations=operations,
         change_items=items,
         validate_only=validate_only,
-        checksum=checksum,
+        checksum=plan_id or checksum,
         ctx=ctx,
     )
 
@@ -364,6 +393,7 @@ def create(
     end_date_time: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -371,9 +401,8 @@ def create(
 
     Costs 1 Google Ads operation per item on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
@@ -387,8 +416,9 @@ def create(
         search_partners: Also show on Google search partners.
         start_date_time: 'yyyy-MM-dd HH:mm:ss' in the account time zone; None: now.
         end_date_time: 'yyyy-MM-dd HH:mm:ss'; None: no end.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -498,7 +528,7 @@ def create(
         operations=operations,
         change_items=items,
         validate_only=validate_only,
-        checksum=checksum,
+        checksum=plan_id or checksum,
         ctx=ctx,
     )
 
@@ -519,6 +549,7 @@ def create_ad_group(
     cpc_bid_micros: int | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -526,9 +557,8 @@ def create_ad_group(
 
     Costs 1 Google Ads operation per item on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
@@ -536,8 +566,9 @@ def create_ad_group(
         campaign_id: The campaign it goes in.
         name: Ad group name.
         cpc_bid_micros: Optional max CPC in micros.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -571,7 +602,7 @@ def create_ad_group(
         operations=operations,
         change_items=items,
         validate_only=validate_only,
-        checksum=checksum,
+        checksum=plan_id or checksum,
         ctx=ctx,
     )
 
@@ -595,6 +626,7 @@ def create_ad(
     path2: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -602,9 +634,8 @@ def create_ad(
 
     Costs 1 Google Ads operation per item on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
@@ -615,8 +646,9 @@ def create_ad(
         final_urls: The landing page URL(s).
         path1: Optional display path part (15 characters).
         path2: Optional second display path part (15 characters).
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -674,6 +706,6 @@ def create_ad(
         operations=operations,
         change_items=items,
         validate_only=validate_only,
-        checksum=checksum,
+        checksum=plan_id or checksum,
         ctx=ctx,
     )

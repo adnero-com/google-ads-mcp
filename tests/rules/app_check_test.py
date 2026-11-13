@@ -2,14 +2,13 @@
 
 import pytest
 
-from ads_mcp.rules.app_check import (
+from ads_mcp.rules.app_check import check, needed_ids
+from ads_mcp.rules.app_spec import (
     AccountFacts,
     AppSpec,
     AssetFact,
     ConversionActionFact,
     UserListFact,
-    check,
-    needed_ids,
 )
 
 APP = "com.example.app"

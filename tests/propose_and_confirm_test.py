@@ -27,6 +27,7 @@ from google.ads.googleads.v26.errors.types.errors import (
 )
 from google.ads.googleads.v26.errors.types.request_error import RequestErrorEnum
 from google.ads.googleads.v26.services.types.asset_service import AssetOperation
+from ads_mcp import plans
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp import utils
 
@@ -189,7 +190,9 @@ class TestProposeAndConfirm(unittest.TestCase):
         """Tests that validate_only=False raises ToolError on missing or mismatched checksums."""
         commit_mock = MagicMock(return_value="Should not execute")
         payload = {"tool": "test_tool", "name": "Approved Name"}
-        valid_checksum = pac.compute_checksum("1234567890", payload)
+        valid_checksum = plans.issue(
+            pac.compute_checksum("1234567890", payload)
+        )
 
         # Missing checksum
         with self.assertRaisesRegex(
@@ -208,7 +211,7 @@ class TestProposeAndConfirm(unittest.TestCase):
 
         # Mismatched payload
         with self.assertRaisesRegex(
-            ToolError, "Invalid or mismatched checksum"
+            ToolError, "preview again with validate_only=true"
         ):
             pac.propose_and_confirm(
                 customer_id="1234567890",
@@ -222,7 +225,7 @@ class TestProposeAndConfirm(unittest.TestCase):
 
         # Mismatched customer_id
         with self.assertRaisesRegex(
-            ToolError, "Invalid or mismatched checksum"
+            ToolError, "preview again with validate_only=true"
         ):
             pac.propose_and_confirm(
                 customer_id="9999999999",
@@ -237,7 +240,9 @@ class TestProposeAndConfirm(unittest.TestCase):
     def test_propose_and_confirm_handles_validation_and_commit_errors(self):
         """Tests that exceptions in validate_fn or commit_fn raise formatted ToolErrors."""
         payload = {"tool": "test_tool", "name": "Test"}
-        valid_checksum = pac.compute_checksum("1234567890", payload)
+        valid_checksum = plans.issue(
+            pac.compute_checksum("1234567890", payload)
+        )
 
         with self.assertRaisesRegex(
             ToolError, "Failed to mutate: API dry-run error"

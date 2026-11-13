@@ -21,7 +21,6 @@ The Google token is the request's own (never logged, nor is any body).
 """
 
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -37,6 +36,7 @@ from pydantic import BaseModel, Field
 from ads_mcp import adnero_auth
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
+from ads_mcp.core import plan as plan_core
 import ads_mcp.utils as utils
 
 api_mcp = FastMCP("api")
@@ -430,6 +430,7 @@ def mutate(
     checksum: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
+    plan_id: str | None = None,
 ) -> m.MutationResult:
     """Sends a raw Google Ads REST mutate for one account, for changes no typed tool covers.
 
@@ -439,9 +440,8 @@ def mutate(
     or none (partialFailure and validateOnly in the body are ignored). Costs 1 Google Ads operation per entry in
     operations on each call (the preview counts too); at most 100 entries.
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a
-    checksum). Show change_items to the person; once they approve, call again with the same arguments,
-    validate_only=false and the checksum. A client with form elicitation may call once with validate_only=false:
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
+    validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
     the person is asked in the client.
 
     Args:
@@ -450,8 +450,9 @@ def mutate(
             campaignBudgets, adGroupAds, campaignCriteria... or googleAds (mutateOperations across resources).
         body: The REST request: {"operations": [{"update": {...}, "updateMask": "..."}]}, or for googleAds
             {"mutateOperations": [{"campaignOperation": {"create": {...}}}]}. Temporary ids are negative.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through; needed when the account is reached through a manager.
     """
     m.use_login(login_customer_id)
@@ -460,7 +461,6 @@ def mutate(
     resource = mutate_resource(cid, p)
     clean = clean_body(body)
     ops = operations_of(clean)
-    expected = checksum_of(cid, p, clean)
     items = change_items(resource, ops)
     items_out = m._items_out(items)
 
@@ -477,33 +477,17 @@ def mutate(
             next_step="Done. Read it back with search_search or api_read to confirm, or report the change to the person.",
         )
 
-    if validate_only:
-        _validate()
-        return m.MutationResult(
-            status="PROPOSED",
-            customer_id=cid,
-            checksum=expected,
-            change_items=items_out,
-            next_step=(
-                "Nothing changed yet. Show change_items to the person; after they approve, call this tool again "
-                "with the same arguments, validate_only=false and this checksum."
-            ),
-        )
-    if checksum:
-        if not hmac.compare_digest(
-            checksum.strip().lower().encode(), expected.encode()
-        ):
-            raise ToolError(
-                "Error: the checksum does not match: call again with validate_only=true first; the change differs "
-                "from the preview."
-            )
-        return _commit()
-    if m._accepted(ctx, expected):
-        return _commit()
-    if m.client_can_elicit(ctx):
-        _validate()
-        return m._ask(m._summary("api_mutate", cid, items), expected)
-    raise ToolError(
-        "Error: a change needs the person's approval first: call again with validate_only=true first, show the "
-        "change_items, then call with validate_only=false and the checksum."
+    # The plan binds the customer, the path and the cleaned body (plans.py: HMAC with the server secret).
+    return m.gate(
+        tool="api_mutate",
+        customer_id=cid,
+        digest=plan_core.digest_of(
+            "api_mutate", cid, {"path": p, "body": clean}
+        ),
+        change_items=items,
+        validate_only=validate_only,
+        plan_id=plan_id or checksum,
+        ctx=ctx,
+        validate=_validate,
+        commit=_commit,
     )

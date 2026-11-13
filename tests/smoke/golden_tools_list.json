@@ -12,7 +12,7 @@
         "openWorldHint": true,
         "readOnlyHint": false
       },
-      "description": "Adds a YouTube video (already on YouTube) as a YOUTUBE_VIDEO asset for App ads (up to 20 per ad).\n\nCosts 1 Google Ads operation on each call (the preview counts too).\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status\nPROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the checksum.",
+      "description": "Adds a YouTube video (already on YouTube) as a YOUTUBE_VIDEO asset for App ads (up to 20 per ad).\n\nCosts 1 Google Ads operation on each call (the preview counts too).\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the plan_id.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -26,7 +26,7 @@
               }
             ],
             "default": null,
-            "description": "From the preview."
+            "description": "Deprecated alias of plan_id."
           },
           "customer_id": {
             "anyOf": [
@@ -66,9 +66,21 @@
             "default": null,
             "description": "Optional asset name."
           },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the preview (signed by the server, valid 15 minutes)."
+          },
           "validate_only": {
             "default": true,
-            "description": "True (default) previews; False applies (needs `checksum`).",
+            "description": "True (default) previews; False applies (needs `plan_id`).",
             "type": "boolean"
           },
           "video": {
@@ -144,7 +156,7 @@
               }
             ],
             "default": null,
-            "description": "PROPOSED only: pass it back with validate_only=false and the same arguments to apply."
+            "description": "Deprecated alias of plan_id (the same value), kept for older clients."
           },
           "customer_id": {
             "type": "string"
@@ -152,6 +164,38 @@
           "next_step": {
             "description": "What to do next.",
             "type": "string"
+          },
+          "notes": {
+            "description": "Things the person should know.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PROPOSED only: pass it back (plan_id) with validate_only=false and the SAME arguments to apply, within 15 minutes. Signed by the server: it cannot be made up, and any changed argument voids it."
+          },
+          "read_back": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "APPLIED only, for creates that read their result back: status, primary_status and policy."
           },
           "resource_names": {
             "description": "APPLIED only: the Google Ads resources created or changed.",
@@ -761,7 +805,7 @@
         "openWorldHint": true,
         "readOnlyHint": false
       },
-      "description": "Uploads an HTML5 zip (MEDIA_BUNDLE asset) for App install ads, after checking it.\n\nChecked before Google: at most 5 MB and 512 files, an .html primary entry, the orientation meta\n(<meta name=\"ad.orientation\" content=\"portrait|landscape\">) and https-only URLs. Only App install ads\n(app_ad.html5_media_bundles) take HTML5. Costs 1 Google Ads operation on each call.\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status\nPROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the checksum.",
+      "description": "Uploads an HTML5 zip (MEDIA_BUNDLE asset) for App install ads, after checking it.\n\nChecked before Google: at most 5 MB and 512 files, an .html primary entry, the orientation meta\n(<meta name=\"ad.orientation\" content=\"portrait|landscape\">) and https-only URLs. Only App install ads\n(app_ad.html5_media_bundles) take HTML5. Costs 1 Google Ads operation on each call.\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the plan_id.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -775,7 +819,7 @@
               }
             ],
             "default": null,
-            "description": "From the preview."
+            "description": "Deprecated alias of plan_id."
           },
           "customer_id": {
             "anyOf": [
@@ -827,6 +871,18 @@
             "default": null,
             "description": "Asset name (default: from the URL); the content hash is appended."
           },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the preview (signed by the server, valid 15 minutes)."
+          },
           "url": {
             "anyOf": [
               {
@@ -841,7 +897,7 @@
           },
           "validate_only": {
             "default": true,
-            "description": "True (default) previews; False applies (needs `checksum`).",
+            "description": "True (default) previews; False applies (needs `plan_id`).",
             "type": "boolean"
           }
         },
@@ -912,7 +968,7 @@
               }
             ],
             "default": null,
-            "description": "PROPOSED only: pass it back with validate_only=false and the same arguments to apply."
+            "description": "Deprecated alias of plan_id (the same value), kept for older clients."
           },
           "customer_id": {
             "type": "string"
@@ -920,6 +976,38 @@
           "next_step": {
             "description": "What to do next.",
             "type": "string"
+          },
+          "notes": {
+            "description": "Things the person should know.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PROPOSED only: pass it back (plan_id) with validate_only=false and the SAME arguments to apply, within 15 minutes. Signed by the server: it cannot be made up, and any changed argument voids it."
+          },
+          "read_back": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "APPLIED only, for creates that read their result back: status, primary_status and policy."
           },
           "resource_names": {
             "description": "APPLIED only: the Google Ads resources created or changed.",
@@ -958,7 +1046,7 @@
         "openWorldHint": true,
         "readOnlyHint": false
       },
-      "description": "Uploads a JPG/PNG image asset after checking it fits an App campaign image slot.\n\nThe image is fetched from a public https URL (private and loopback hosts are refused, 5 MB cap) or\ntaken from base64. It must be 1:1 (min 200x200), 1.91:1 (min 600x314) or 4:5 (min 320x400) within 0.5%,\nelse it is refused before Google sees it. The asset name gets the content hash appended (Google needs\nunique names). Costs 1 Google Ads operation on each call (the preview counts too).\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status\nPROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the checksum.",
+      "description": "Uploads a JPG/PNG image asset after checking it fits an App campaign image slot.\n\nThe image is fetched from a public https URL (private and loopback hosts are refused, 5 MB cap) or\ntaken from base64. It must be 1:1 (min 200x200), 1.91:1 (min 600x314) or 4:5 (min 320x400) within 0.5%,\nelse it is refused before Google sees it. The asset name gets the content hash appended (Google needs\nunique names). Costs 1 Google Ads operation on each call (the preview counts too).\n\nApproval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same\narguments, validate_only=false and the plan_id.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -972,7 +1060,7 @@
               }
             ],
             "default": null,
-            "description": "From the preview."
+            "description": "Deprecated alias of plan_id."
           },
           "customer_id": {
             "anyOf": [
@@ -1024,6 +1112,18 @@
             "default": null,
             "description": "Asset name (default: from the URL); the content hash is appended."
           },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From the preview (signed by the server, valid 15 minutes)."
+          },
           "url": {
             "anyOf": [
               {
@@ -1038,7 +1138,7 @@
           },
           "validate_only": {
             "default": true,
-            "description": "True (default) previews; False applies (needs `checksum`).",
+            "description": "True (default) previews; False applies (needs `plan_id`).",
             "type": "boolean"
           }
         },
@@ -1109,7 +1209,7 @@
               }
             ],
             "default": null,
-            "description": "PROPOSED only: pass it back with validate_only=false and the same arguments to apply."
+            "description": "Deprecated alias of plan_id (the same value), kept for older clients."
           },
           "customer_id": {
             "type": "string"
@@ -1117,6 +1217,38 @@
           "next_step": {
             "description": "What to do next.",
             "type": "string"
+          },
+          "notes": {
+            "description": "Things the person should know.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "PROPOSED only: pass it back (plan_id) with validate_only=false and the SAME arguments to apply, within 15 minutes. Signed by the server: it cannot be made up, and any changed argument voids it."
+          },
+          "read_back": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "APPLIED only, for creates that read their result back: status, primary_status and policy."
           },
           "resource_names": {
             "description": "APPLIED only: the Google Ads resources created or changed.",

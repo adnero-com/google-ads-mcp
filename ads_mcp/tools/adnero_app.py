@@ -22,15 +22,14 @@ from mcp.types import ToolAnnotations
 
 from ads_mcp import adnero_mutate as m
 from ads_mcp.rules import app as R
-from ads_mcp.rules.app_check import (
+from ads_mcp.rules.app_check import check as check_spec, needed_ids
+from ads_mcp.rules.app_spec import (
     AccountFacts,
     AppSpec,
     AssetFact,
     CheckReport,
     ConversionActionFact,
     UserListFact,
-    check as check_spec,
-    needed_ids,
 )
 
 app_mcp = FastMCP("app")
@@ -46,14 +45,20 @@ def _rows(cid: str, query: str, login) -> list[dict]:
     return search_page(cid, query, 10_000, None, login).rows
 
 
-def read_facts(cid: str, spec: AppSpec, login) -> AccountFacts:
-    """1 search for conversion actions, +1 for the named assets, +1 for the named user lists."""
-    conversions = _rows(
-        cid,
-        "SELECT conversion_action.id, conversion_action.name, conversion_action.status, "
-        "conversion_action.type, conversion_action.category, conversion_action.app_id "
-        "FROM conversion_action WHERE conversion_action.status != 'REMOVED'",
-        login,
+def read_facts(
+    cid: str, spec: AppSpec, login, conversions: bool = True
+) -> AccountFacts:
+    """1 search for conversion actions (unless conversions=False), +1 for the named assets, +1 for user lists."""
+    actions = (
+        _rows(
+            cid,
+            "SELECT conversion_action.id, conversion_action.name, conversion_action.status, "
+            "conversion_action.type, conversion_action.category, conversion_action.app_id "
+            "FROM conversion_action WHERE conversion_action.status != 'REMOVED'",
+            login,
+        )
+        if conversions
+        else []
     )
     asset_ids = needed_ids(spec)
     assets = (
@@ -87,7 +92,7 @@ def read_facts(cid: str, spec: AppSpec, login) -> AccountFacts:
                 category=str(r.get("conversion_action.category", "")),
                 app_id=str(r.get("conversion_action.app_id", "") or ""),
             )
-            for r in conversions
+            for r in actions
         ),
         assets=tuple(
             AssetFact(
