@@ -26,9 +26,11 @@ def parse_https_url(url: str) -> Result[Target, str]:
         return Err("The URL is too long.")
     try:
         parts = urlsplit(url.strip())
-        port = parts.port or 443
+        port = 443 if parts.port is None else parts.port
     except ValueError:
         return Err("The URL cannot be parsed.")
+    if not 1 <= port <= 65535:
+        return Err("The URL's port is not valid.")
     if parts.scheme.lower() != "https":
         return Err("Only https:// URLs are fetched.")
     if parts.username is not None or parts.password is not None:

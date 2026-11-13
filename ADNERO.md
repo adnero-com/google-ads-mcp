@@ -105,7 +105,7 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   - `upload_image`: https URL (or base64). The fetch is SSRF-safe (`safe_fetch.py` + `core/net.py`): https only,
     the host is resolved once and every address must be public (IPv4-in-IPv6 forms judged too), the connection is
     pinned to that address with TLS verifying the host, at most 3 redirects (each re-checked), a 5 MB cap and a
-    deadline. The type comes from the magic bytes (PNG/JPEG), and the size and ratio are checked before Google
+    wall-clock deadline for the whole fetch (a watchdog shuts the socket down, so a drip cannot hold it). The type comes from the magic bytes (PNG/JPEG), and the size and ratio are checked before Google
     sees it. The name gets the content sha256 (8 hex) appended, so it is unique. Preview -> apply; apply fetches
     again, and the checksum binds the sha256, so a file that changed in between is refused.
   - `upload_html5`: zip checks (size, file count, an .html primary entry, `ad.orientation` meta, no http://).

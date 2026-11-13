@@ -24,6 +24,7 @@ from ads_mcp.core.result import Err, Ok
         ("https://user:pw@example.com/", None),
         ("https:///nohost", None),
         ("https://example.com:99999/", None),
+        ("https://example.com:0/", None),
         ("https://" + "a" * 3000 + ".com/", None),
     ],
 )

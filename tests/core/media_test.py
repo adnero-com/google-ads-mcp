@@ -114,3 +114,26 @@ def test_html5_not_a_zip_and_too_large():
         "HTML5_NOT_A_ZIP",
         "HTML5_TOO_LARGE",
     ]
+
+
+def _corrupt(kind):
+    buf = io.BytesIO()
+    method = zipfile.ZIP_DEFLATED if kind == "deflate" else zipfile.ZIP_STORED
+    with zipfile.ZipFile(buf, "w", method) as z:
+        z.writestr("index.html", b"<html>" + b"A" * 5000)
+    data = bytearray(buf.getvalue())
+    if kind == "deflate":
+        i = data.find(b"index.html") + 10
+        data[i + 5 : i + 40] = b"\xff" * 35
+    elif kind == "method":
+        data[8] = 99
+        data[data.find(b"PK\x01\x02") + 10] = 99
+    else:  # truncated
+        data = data[: len(data) // 2]
+    return bytes(data)
+
+
+@pytest.mark.parametrize("kind", ["deflate", "method", "truncated"])
+def test_broken_zips_are_problems_not_exceptions(kind):
+    _, problems = media.inspect_html5(_corrupt(kind))
+    assert [p.code for p in problems] == ["HTML5_NOT_A_ZIP"]

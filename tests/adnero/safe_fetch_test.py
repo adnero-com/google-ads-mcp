@@ -140,3 +140,70 @@ def test_redirect_loop_stops():
         connect=fresh,
     )
     assert isinstance(got, Err) and "redirects" in got.error
+
+
+def _drip_server(head: bytes, body_drip: bool):
+    """A local server that sends `head` (one byte per 0.2 s when body_drip is False) then drips the body."""
+    import socket
+    import threading
+    import time
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def serve():
+        c, _ = srv.accept()
+        c.recv(4096)
+        try:
+            if body_drip:
+                c.sendall(head)
+                for _ in range(1000):
+                    c.sendall(b"x")
+                    time.sleep(0.2)
+            else:
+                for b in head:
+                    c.sendall(bytes([b]))
+                    time.sleep(0.2)
+        except OSError:
+            pass
+        finally:
+            c.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return srv.getsockname()[1]
+
+
+@pytest.mark.parametrize(
+    "head, body_drip",
+    [
+        (
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n",
+            True,
+        ),  # slow body
+        (
+            b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n"
+            + b"X-Pad: y\r\n" * 50
+            + b"\r\nx",
+            False,
+        ),  # slow headers
+    ],
+)
+def test_wall_clock_deadline_holds_against_a_drip(head, body_drip):
+    import http.client
+    import time
+
+    port = _drip_server(head, body_drip)
+    start = time.monotonic()
+    got = safe_fetch.fetch(
+        "https://cdn.example.com/a.png",
+        5_000_000,
+        resolver=lambda h, p: ("93.184.216.34",),
+        connect=lambda t, ip, to: http.client.HTTPConnection(
+            "127.0.0.1", port, timeout=to
+        ),
+        timeout=1.0,
+    )
+    elapsed = time.monotonic() - start
+    assert isinstance(got, Err) and "too long" in got.error
+    assert elapsed < 3.0, f"the 1 s deadline took {elapsed:.1f} s"

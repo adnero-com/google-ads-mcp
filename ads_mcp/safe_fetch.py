@@ -17,7 +17,9 @@
 The host is resolved once; every address must be public (core/net.py); the TCP connection
 goes to that address (pinned) while TLS verifies the original host name. Redirects are
 followed by hand (at most 3), each one re-checked. The body is read under a byte cap and a
-deadline. No cookies or credentials are sent. Failures are returned as Err, never raised.
+deadline. The deadline is wall-clock for the whole fetch, headers included: a watchdog shuts the socket down
+when it passes, so a server that drips one byte at a time cannot hold the call open. No cookies or credentials
+are sent. Failures are returned as Err, never raised.
 """
 
 from collections.abc import Callable
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 import http.client
 import socket
 import ssl
+import threading
 import time
 from urllib.parse import urljoin
 
@@ -81,6 +84,20 @@ def _connect(
     return _Pinned(target, ip, timeout)
 
 
+def _abort(conn: http.client.HTTPConnection) -> None:
+    """The watchdog: unblock any read in progress by shutting the socket down."""
+    sock = getattr(conn, "sock", None)
+    if sock is not None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+
+def _remaining(deadline: float) -> float:
+    return max(0.0, deadline - time.monotonic())
+
+
 def fetch(
     url: str,
     max_bytes: int,
@@ -100,7 +117,12 @@ def fetch(
         ip = judge_addresses(target.host, resolver(target.host, target.port))
         if isinstance(ip, Err):
             return ip
-        conn = connect(target, ip.value, max(1.0, deadline - time.monotonic()))
+        if _remaining(deadline) <= 0:
+            return Err("The download took too long.")
+        conn = connect(target, ip.value, _remaining(deadline))
+        watchdog = threading.Timer(_remaining(deadline), _abort, args=(conn,))
+        watchdog.daemon = True
+        watchdog.start()
         try:
             conn.request(
                 "GET",
@@ -135,14 +157,23 @@ def fetch(
                     resp.getheader("Content-Type") or "",
                 )
             )
-        except (OSError, http.client.HTTPException, ssl.SSLError) as exc:
+        except (
+            OSError,
+            http.client.HTTPException,
+            ssl.SSLError,
+            ValueError,
+        ) as exc:
+            if _remaining(deadline) <= 0:
+                return Err("The download took too long.")
             return Err(f"Could not fetch the URL: {type(exc).__name__}.")
         finally:
+            watchdog.cancel()
             conn.close()
     return Err(f"More than {MAX_REDIRECTS} redirects.")
 
 
 def _read_capped(resp, max_bytes: int, deadline: float) -> Result[bytes, str]:
+    """Small reads under the cap; the watchdog ends a read that outlives the deadline."""
     # Local buffer; nothing escapes but the bytes (streaming read under a cap).
     chunks: list[bytes] = []
     total = 0

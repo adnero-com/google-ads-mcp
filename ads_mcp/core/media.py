@@ -7,6 +7,7 @@ import io
 import re
 import struct
 import zipfile
+import zlib
 
 from ads_mcp.core.result import Err, Ok, Result
 from ads_mcp.rules.app import HTML5_MAX_BYTES, HTML5_MAX_FILES, Problem
@@ -133,7 +134,16 @@ def inspect_html5(
         )
         # Bounded read: the primary entry only, and at most the size cap.
         page = archive.open(primary).read(HTML5_MAX_BYTES) if primary else b""
-    except (zipfile.BadZipFile, OSError, RuntimeError, ValueError):
+    except (
+        zipfile.BadZipFile,
+        zlib.error,
+        OSError,
+        EOFError,
+        NotImplementedError,
+        RuntimeError,
+        ValueError,
+        KeyError,
+    ):
         return None, size + (
             Problem(
                 code="HTML5_NOT_A_ZIP",
