@@ -1,7 +1,24 @@
 """App campaign targeting checks (pure): engagement user lists, locations."""
 
+from ads_mcp.core.result import Err, Result
 from ads_mcp.rules import app as R
+from ads_mcp.rules.eu import EuStatus, decide
 from ads_mcp.rules.app_spec import AccountFacts, AppSpec
+
+
+def eu_status(
+    spec: AppSpec, facts: AccountFacts
+) -> Result[EuStatus, R.Problem]:
+    return decide(
+        spec.contains_eu_political_advertising,
+        spec.geo_target_ids,
+        facts.eu_requiring_geo_ids,
+    )
+
+
+def eu_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
+    status = eu_status(spec, facts)
+    return [status.error] if isinstance(status, Err) else []
 
 
 def audience_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
@@ -22,6 +39,7 @@ def audience_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
             code="USER_LIST_NOT_FOUND",
             field=f"user_list_ids[{i}]",
             message=f"User list {u} is not in this account.",
+            severity="ERROR" if facts.complete else "WARNING",
         )
         for i, u in enumerate(spec.user_list_ids)
         if u not in known

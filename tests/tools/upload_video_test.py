@@ -157,7 +157,7 @@ class TestUploadVideo(unittest.IsolatedAsyncioTestCase):
 
             # Mismatched title
             with self.assertRaisesRegex(
-                ToolError, "Invalid or mismatched checksum"
+                ToolError, "preview again with validate_only=true"
             ):
                 await upload_video.upload_video_asset(
                     customer_id="1234567890",
@@ -172,7 +172,7 @@ class TestUploadVideo(unittest.IsolatedAsyncioTestCase):
             with open(video_path, "wb") as f:
                 f.write(b"swapped_larger_video_bytes_payload")
             with self.assertRaisesRegex(
-                ToolError, "Invalid or mismatched checksum"
+                ToolError, "preview again with validate_only=true"
             ):
                 await upload_video.upload_video_asset(
                     customer_id="1234567890",

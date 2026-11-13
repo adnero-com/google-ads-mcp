@@ -10,25 +10,23 @@ from collections.abc import Sequence
 
 from ads_mcp.rules import app as R
 from ads_mcp.rules.app_creative import check_counts, check_image, check_texts
-from ads_mcp.rules.app_spec import (  # noqa: F401  (re-exported for callers)
-    AccountFacts,
-    AppSpec,
-    AssetFact,
-    CheckReport,
-    ConversionActionFact,
-    UserListFact,
-)
+from ads_mcp.rules.app_spec import AccountFacts, AppSpec, CheckReport
 from ads_mcp.rules.app_goal import check_app_id, check_goal
-from ads_mcp.rules.app_targeting import audience_problems, geo_problems
+from ads_mcp.rules.app_targeting import (
+    audience_problems,
+    eu_problems,
+    geo_problems,
+)
 
 
-def _conversion_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
+def conversion_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
     by_id = {c.id: c for c in facts.conversion_actions}
     missing = [
         R.Problem(
             code="CONVERSION_ACTION_NOT_FOUND",
             field=f"conversion_action_ids[{i}]",
             message=f"Conversion action {cid} is not in this account.",
+            severity="ERROR" if facts.complete else "WARNING",
         )
         for i, cid in enumerate(spec.conversion_action_ids)
         if cid not in by_id
@@ -80,7 +78,11 @@ def _conversion_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
     ]
     linked = (
         []
-        if any(c.app_id == spec.app_id for c in facts.conversion_actions)
+        if (
+            facts.app_tracked
+            if facts.app_tracked is not None
+            else any(c.app_id == spec.app_id for c in facts.conversion_actions)
+        )
         else [
             R.Problem(
                 code="APP_NOT_TRACKED",
@@ -101,7 +103,7 @@ _SLOTS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _asset_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
+def asset_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
     by_id = {a.id: a for a in facts.assets}
     listed = [
         (f"{slot}[{i}]", aid, want)
@@ -113,6 +115,7 @@ def _asset_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
             code="ASSET_NOT_FOUND",
             field=f,
             message=f"Asset {aid} is not in this account.",
+            severity="ERROR" if facts.complete else "WARNING",
         )
         for f, aid, _ in listed
         if aid not in by_id
@@ -161,10 +164,11 @@ def check(spec: AppSpec, facts: AccountFacts) -> CheckReport:
             spec.conversion_action_ids,
         )
         + check_texts(spec.headlines, spec.descriptions)
-        + _conversion_problems(spec, facts)
-        + _asset_problems(spec, facts)
+        + conversion_problems(spec, facts)
+        + asset_problems(spec, facts)
         + audience_problems(spec, facts)
         + geo_problems(spec)
+        + eu_problems(spec, facts)
     )
     return CheckReport(
         ok=not any(p.severity == "ERROR" for p in problems),
@@ -172,6 +176,15 @@ def check(spec: AppSpec, facts: AccountFacts) -> CheckReport:
         campaign_sub_type=shape.sub_type,
         ad_field=shape.ad_field,
         bidding=goal.bidding if goal else "",
+    )
+
+
+def ad_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
+    """The ad-level part of `check`: texts, assets, audiences (an ad group added to an existing campaign)."""
+    return (
+        check_texts(spec.headlines, spec.descriptions)
+        + asset_problems(spec, facts)
+        + audience_problems(spec, facts)
     )
 
 

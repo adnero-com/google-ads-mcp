@@ -20,5 +20,5 @@ namespaces:
   accounts: true  # list_clients, list_accessible
   campaigns: true
   keywords: true
-  app: true  # check (App campaigns; more in later releases)
+  app: true  # check, campaign_create, ad_group_create, ad_update, campaign_update
   api: true  # read, mutate (raw REST passthrough under one customer)

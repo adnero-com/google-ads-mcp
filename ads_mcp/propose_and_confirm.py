@@ -29,7 +29,7 @@ from google.ads.googleads.errors import GoogleAdsException
 from google.protobuf.message import Message as PbMessage
 import proto
 
-from ads_mcp import utils
+from ads_mcp import plans, utils
 
 logger = logging.getLogger(__name__)
 
@@ -242,13 +242,14 @@ def format_proposal_response(
         "validate_only": True,
         "customer_id": customer_id,
         "checksum": checksum,
+        "plan_id": checksum,
         "change_items": [item.to_dict() for item in change_items],
         "message": (
             "Validation succeeded (validate_only=True). No changes have been "
             "committed. Present the proposed change_items to the user and "
             "wait for explicit user confirmation, then call this tool again "
             "with validate_only=False, the exact same parameters, and the "
-            "returned checksum."
+            "returned checksum (a server-signed plan, valid 15 minutes)."
         ),
     }
     return json.dumps(payload, indent=2)
@@ -288,7 +289,9 @@ def propose_and_confirm(
          constant time before executing any mutation.
       2. Calls ``commit_fn()`` to commit the mutation and returns its result.
     """
-    expected_checksum = compute_checksum(customer_id, operation_payload)
+    # adnero: the token handed out is a server-signed plan over this digest (ads_mcp/plans.py), not the bare
+    # sha256 a client could recompute; it expires after 15 minutes. The argument is still called `checksum`.
+    digest = compute_checksum(customer_id, operation_payload)
 
     if validate_only:
         if validate_fn is not None:
@@ -302,24 +305,28 @@ def propose_and_confirm(
                 raise ToolError(msg) from exc
         return format_proposal_response(
             customer_id=customer_id,
-            checksum=expected_checksum,
+            checksum=plans.issue(digest),
             change_items=change_items,
         )
 
-    checksum_err = verify_checksum(
-        customer_id=customer_id,
-        operations=operation_payload,
-        checksum=checksum,
-        expected_checksum=expected_checksum,
-    )
-    if checksum_err:
-        raise ToolError(checksum_err)
+    if not checksum or not checksum.strip():
+        raise ToolError(
+            "Error: checksum from a previous validate_only=True call is "
+            "required when validate_only=False."
+        )
+    problem = plans.consume(checksum, digest)
+    if problem:
+        raise ToolError(problem)
 
     try:
         return commit_fn()
     except ToolError:
         raise
     except Exception as exc:
+        if isinstance(exc, GoogleAdsException):
+            plans.release(
+                checksum
+            )  # Google refused it: nothing changed, the plan may be retried
         msg = _format_exception(error_prefix, exc)
         logger.error("%s", msg)
         raise ToolError(msg) from exc

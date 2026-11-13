@@ -30,6 +30,11 @@ class AppSpec(BaseModel):
     youtube_video_asset_ids: tuple[str, ...] = ()
     html5_asset_ids: tuple[str, ...] = ()
     user_list_ids: tuple[str, ...] = ()
+    contains_eu_political_advertising: bool | None = Field(
+        default=None,
+        description="Required when a targeted location requires the EU declaration (Google says which) or no "
+        "location is set; otherwise defaults to false.",
+    )
 
 
 class ConversionActionFact(BaseModel):
@@ -63,6 +68,18 @@ class AccountFacts(BaseModel):
     conversion_actions: tuple[ConversionActionFact, ...] = ()
     assets: tuple[AssetFact, ...] = ()
     user_lists: tuple[UserListFact, ...] = ()
+    app_tracked: bool | None = Field(
+        default=None,
+        description="A conversion action tracks the app; None: unknown (derived from conversion_actions).",
+    )
+    complete: bool = Field(
+        default=True,
+        description="Every lookup read to the end. False: missing ids are warnings, never refusals.",
+    )
+    eu_requiring_geo_ids: tuple[str, ...] | None = Field(
+        default=(),
+        description="Targeted geo ids whose constant requires the EU declaration; None when the read failed.",
+    )
 
 
 class CheckReport(BaseModel):

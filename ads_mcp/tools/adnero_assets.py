@@ -113,6 +113,7 @@ def upload_image(
     name: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -123,17 +124,17 @@ def upload_image(
     else it is refused before Google sees it. The asset name gets the content hash appended (Google needs
     unique names). Costs 1 Google Ads operation on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status
-    PROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same
-    arguments, validate_only=false and the checksum.
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same
+    arguments, validate_only=false and the plan_id.
 
     Args:
         customer_id: The Google Ads account.
         url: https URL of the image.
         data_base64: The image bytes as base64 (instead of url).
         name: Asset name (default: from the URL); the content hash is appended.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through.
     """
     m.use_login(login_customer_id)
@@ -176,7 +177,7 @@ def upload_image(
         {"name": asset_name, "sha256": sha},
         items,
         validate_only,
-        checksum,
+        plan_id or checksum,
         ctx,
     )
 
@@ -191,6 +192,7 @@ def upload_html5(
     name: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -200,17 +202,17 @@ def upload_html5(
     (<meta name="ad.orientation" content="portrait|landscape">) and https-only URLs. Only App install ads
     (app_ad.html5_media_bundles) take HTML5. Costs 1 Google Ads operation on each call.
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status
-    PROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same
-    arguments, validate_only=false and the checksum.
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same
+    arguments, validate_only=false and the plan_id.
 
     Args:
         customer_id: The Google Ads account.
         url: https URL of the .zip.
         data_base64: The zip as base64 (instead of url).
         name: Asset name (default: from the URL); the content hash is appended.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through.
     """
     m.use_login(login_customer_id)
@@ -246,7 +248,7 @@ def upload_html5(
         {"name": asset_name, "sha256": sha},
         items,
         validate_only,
-        checksum,
+        plan_id or checksum,
         ctx,
     )
 
@@ -258,6 +260,7 @@ def add_youtube(
     name: str | None = None,
     validate_only: bool = True,
     checksum: str | None = None,
+    plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
 ) -> m.MutationResult:
@@ -265,16 +268,16 @@ def add_youtube(
 
     Costs 1 Google Ads operation on each call (the preview counts too).
 
-    Approval: call with validate_only=true (default): Google validates it and nothing changes (status
-    PROPOSED, a checksum). Show change_items to the person; once they approve, call again with the same
-    arguments, validate_only=false and the checksum.
+    Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same
+    arguments, validate_only=false and the plan_id.
 
     Args:
         customer_id: The Google Ads account.
         video: The 11-character video id, or a youtube.com / youtu.be / shorts URL.
         name: Optional asset name.
-        validate_only: True (default) previews; False applies (needs `checksum`).
-        checksum: From the preview.
+        validate_only: True (default) previews; False applies (needs `plan_id`).
+        plan_id: From the preview (signed by the server, valid 15 minutes).
+        checksum: Deprecated alias of plan_id.
         login_customer_id: The manager (MCC) account to call through.
     """
     m.use_login(login_customer_id)
@@ -300,6 +303,6 @@ def add_youtube(
         {"name": asset_name, "video_id": video_id},
         items,
         validate_only,
-        checksum,
+        plan_id or checksum,
         ctx,
     )

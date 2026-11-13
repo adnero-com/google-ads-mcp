@@ -317,7 +317,8 @@ class MutateTest(StubGoogle):
     def test_preview_sends_validate_only(self):
         out = api.mutate(customer_id=CID, path=self.PATH, body=self.BODY)
         self.assertEqual(out.status, "PROPOSED")
-        self.assertEqual(len(out.checksum), 64)
+        self.assertTrue(out.plan_id.startswith("p1."))
+        self.assertEqual(out.checksum, out.plan_id)
         self.assertEqual(out.change_items[0].operation, "UPDATE")
         req = self.server.seen[-1]
         self.assertEqual(req.method, "POST")
@@ -355,7 +356,7 @@ class MutateTest(StubGoogle):
                 validate_only=False,
                 checksum=proposal.checksum,
             )
-        self.assertIn("validate_only=true first", str(e.exception))
+        self.assertIn("preview again with validate_only=true", str(e.exception))
         with self.assertRaises(ToolError):
             api.mutate(
                 customer_id=CID,
@@ -371,7 +372,7 @@ class MutateTest(StubGoogle):
                 body=self.BODY,
                 validate_only=False,
             )
-        self.assertIn("validate_only=true first", str(e.exception))
+        self.assertIn("approval first", str(e.exception))
         self.assert_nothing_sent()
 
     def test_remove_is_refused(self):

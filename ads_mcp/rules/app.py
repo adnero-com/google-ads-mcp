@@ -75,10 +75,15 @@ IMAGE_RATIOS: tuple[ImageRatio, ...] = (
     ImageRatio("1.91:1", 1.91, 600, 314),
     ImageRatio("4:5", 0.8, 320, 400),
 )
-# The Help Center says 1%, but Google refused 881x1092 (0.84% off 4:5) and 2048x1081 (0.81% off 1.91:1) live
-# (ASPECT_RATIO_NOT_ALLOWED, 2026-11-13). 0.5% passes every recommended size and nothing Google refused.
+# The Help Center says 1%; Google is stricter. Live on beta (2026-11-13, App ad images):
+#   refused  2048x1081 (0.81% off 1.91:1)   ASPECT_RATIO_NOT_ALLOWED
+#   refused   881x1092 (0.85% off 4:5)      ASPECT_RATIO_NOT_ALLOWED
+#   accepted 2048x1070 (0.21% off 1.91:1)
+#   accepted 1602x2002 (0.03% off 4:5)
+# 0.5% sits between them: it passes every accepted size and every recommended size, and nothing refused.
 RATIO_TOLERANCE = 0.005
 IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
 IMAGE_MIME_TYPES = ("IMAGE_JPEG", "IMAGE_PNG")
 MAX_IMAGES = 20
 MAX_VIDEOS = 20
