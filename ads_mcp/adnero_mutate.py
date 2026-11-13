@@ -32,6 +32,7 @@ from fastmcp.exceptions import ToolError
 from google.ads.googleads.errors import GoogleAdsException
 from pydantic import BaseModel, Field
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import propose_and_confirm as pac
 import ads_mcp.utils as utils
 
@@ -280,7 +281,7 @@ def mutate(
     service = utils.get_googleads_service_from_client(
         ga_client, "GoogleAdsService"
     )
-    request = ga_client.get_type("MutateGoogleAdsRequest")
+    request = ga_client.get_type("MutateGoogleAdsRequest", version=API_VERSION)
     request.customer_id = customer_id
     request.mutate_operations.extend(operations(ga_client))
     expected = pac.compute_checksum(customer_id, {"tool": tool, **payload})

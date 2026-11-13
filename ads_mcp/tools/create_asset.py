@@ -23,6 +23,7 @@ from google.protobuf.json_format import ParseDict
 from mcp.types import ToolAnnotations
 from typing_extensions import TypedDict
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp.tools import assets_mcp
 import ads_mcp.utils as utils
@@ -93,7 +94,9 @@ def _populate_sub_asset(
                 "Error: Provide either 'image_asset_path' or 'image_asset_data', not both."
             )
 
-        mime_enum = ga_client.get_type("MimeTypeEnum").MimeType
+        mime_enum = ga_client.get_type(
+            "MimeTypeEnum", version=API_VERSION
+        ).MimeType
         valid_image_mimes = {
             m.name: m for m in mime_enum if m.name.startswith("IMAGE_")
         }
@@ -313,7 +316,7 @@ def create_asset(
         ga_client, "AssetService"
     )
 
-    asset_op = ga_client.get_type("AssetOperation")
+    asset_op = ga_client.get_type("AssetOperation", version=API_VERSION)
     asset = asset_op.create
 
     # 1. Root-level settings
@@ -336,13 +339,15 @@ def create_asset(
                 raise ToolError(
                     "Error: Each item in 'url_custom_parameters' must contain non-empty 'key' and 'value'."
                 )
-            param = ga_client.get_type("CustomParameter")
+            param = ga_client.get_type("CustomParameter", version=API_VERSION)
             param.key = key
             param.value = value
             asset.url_custom_parameters.append(param)
 
     # Parse and validate AssetType
-    asset_type_enum = ga_client.get_type("AssetTypeEnum").AssetType
+    asset_type_enum = ga_client.get_type(
+        "AssetTypeEnum", version=API_VERSION
+    ).AssetType
     valid_types = {
         t.name: t
         for t in asset_type_enum
@@ -451,7 +456,7 @@ def create_asset(
         },
     )
 
-    request = ga_client.get_type("MutateAssetsRequest")
+    request = ga_client.get_type("MutateAssetsRequest", version=API_VERSION)
     request.customer_id = cleaned_customer_id
     request.operations.append(asset_op)
     request.validate_only = validate_only

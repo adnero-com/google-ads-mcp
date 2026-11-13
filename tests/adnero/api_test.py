@@ -480,13 +480,31 @@ class MutateTest(StubGoogle):
 
 
 class ApiVersionTest(unittest.TestCase):
-    def test_default_override_and_fallback(self):
+    def test_a_different_version_env_stops_the_server(self):
+        from ads_mcp import server
+
+        for ok in ({}, {"GOOGLE_ADS_API_VERSION": "v26"}):
+            with patch.dict(os.environ, ok, clear=True):
+                adnero_auth.check_api_version_env()
+        with patch.dict(
+            os.environ, {"GOOGLE_ADS_API_VERSION": "v27"}, clear=True
+        ):
+            with self.assertRaises(RuntimeError):
+                adnero_auth.check_api_version_env()
+            with (
+                patch.object(adnero_auth, "serve") as serve,
+                patch.object(server.mcp, "run") as run,
+            ):
+                with self.assertRaises(RuntimeError):
+                    server.run_server()
+                serve.assert_not_called()
+                run.assert_not_called()
+
+    def test_one_version_env_cannot_move_it(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(adnero_auth.api_version(), "v26")
-        with patch.dict(os.environ, {"GOOGLE_ADS_API_VERSION": "v27"}):
-            self.assertEqual(adnero_auth.api_version(), "v27")
-        for bad in ("26", "v2", "v26_2", "v26/../x", "latest"):
-            with patch.dict(os.environ, {"GOOGLE_ADS_API_VERSION": bad}):
+        for other in ("v27", "v25", "26", "latest"):
+            with patch.dict(os.environ, {"GOOGLE_ADS_API_VERSION": other}):
                 with self.assertLogs("ads_mcp.adnero_auth", "WARNING"):
                     self.assertEqual(adnero_auth.api_version(), "v26")
 
@@ -499,12 +517,12 @@ class ApiVersionTest(unittest.TestCase):
             ):
                 with patch("ads_mcp.utils.GoogleAdsClient") as client:
                     utils._get_googleads_client()
-                    self.assertEqual(client.call_args.kwargs["version"], "v25")
+                    self.assertEqual(client.call_args.kwargs["version"], "v26")
                     service = utils.get_googleads_service_from_client(
                         client.return_value, "GoogleAdsService"
                     )
         self.assertEqual(
-            client.return_value.get_service.call_args.kwargs["version"], "v25"
+            client.return_value.get_service.call_args.kwargs["version"], "v26"
         )
         self.assertIs(service, client.return_value.get_service.return_value)
         with patch.dict(os.environ, {}, clear=True):

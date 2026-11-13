@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, 'adnero/**' ]
   push:
-    branches: [ main ]
+    branches: [ main, 'adnero/**' ]
 
 jobs:
   lint:
@@ -56,6 +56,8 @@ jobs:
         run: nox -s smoke_tests
 
   llm-tests:
+    # Needs GEMINI_API_KEY (upstream's secret); the adnero branch does not run it.
+    if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

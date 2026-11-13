@@ -34,6 +34,7 @@ from ads_mcp.resources import (
 def run_server() -> None:
     from ads_mcp import adnero_auth
 
+    adnero_auth.check_api_version_env()
     if adnero_auth.enabled():
         adnero_auth.serve(mcp)
         return

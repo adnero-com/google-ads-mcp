@@ -21,6 +21,7 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 
@@ -115,7 +116,7 @@ def add(
     def operations(client):
         ops = []
         for text, match in words:
-            op = client.get_type("MutateOperation")
+            op = client.get_type("MutateOperation", version=API_VERSION)
             if group is not None:
                 crit = op.ad_group_criterion_operation.create
                 crit.ad_group = f"customers/{cid}/adGroups/{group}"
@@ -218,7 +219,7 @@ def remove(
     def operations(client):
         ops = []
         for t in targets:
-            op = client.get_type("MutateOperation")
+            op = client.get_type("MutateOperation", version=API_VERSION)
             rn = f"customers/{cid}/{collection}/{t}"
             if lvl == "AD_GROUP":
                 op.ad_group_criterion_operation.remove = rn

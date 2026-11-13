@@ -25,6 +25,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 
@@ -128,7 +129,7 @@ def set_status(
     def operations(client):
         ops = []
         for t in targets:
-            op = client.get_type("MutateOperation")
+            op = client.get_type("MutateOperation", version=API_VERSION)
             inner = getattr(op, op_field)
             inner.update.resource_name = f"customers/{cid}/{collection}/{t}"
             inner.update.status = getattr(getattr(client.enums, enum_name), st)
@@ -218,7 +219,7 @@ def set_budget(
         )
 
     def operations(client):
-        op = client.get_type("MutateOperation")
+        op = client.get_type("MutateOperation", version=API_VERSION)
         op.campaign_budget_operation.update.resource_name = budget_rn
         op.campaign_budget_operation.update.amount_micros = amount
         op.campaign_budget_operation.update_mask.paths.append("amount_micros")
@@ -315,7 +316,7 @@ def set_bids(
     op_field, collection, _, _ = _LEVELS[lvl]
 
     def operations(client):
-        op = client.get_type("MutateOperation")
+        op = client.get_type("MutateOperation", version=API_VERSION)
         inner = getattr(op, op_field)
         inner.update.resource_name = f"customers/{cid}/{collection}/{target}"
         for k, v in chosen.items():
@@ -408,7 +409,7 @@ def create(
 
     def operations(client):
         e = client.enums
-        b_op = client.get_type("MutateOperation")
+        b_op = client.get_type("MutateOperation", version=API_VERSION)
         budget = b_op.campaign_budget_operation.create
         budget.resource_name = budget_rn
         budget.name = f"{name.strip()} budget"
@@ -416,7 +417,7 @@ def create(
         budget.delivery_method = e.BudgetDeliveryMethodEnum.STANDARD
         budget.explicitly_shared = False
 
-        c_op = client.get_type("MutateOperation")
+        c_op = client.get_type("MutateOperation", version=API_VERSION)
         c = c_op.campaign_operation.create
         c.resource_name = campaign_rn
         c.name = name.strip()
@@ -430,11 +431,16 @@ def create(
             e.EuPoliticalAdvertisingStatusEnum.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
         )
         if bid == "MANUAL_CPC":
-            client.copy_from(c.manual_cpc, client.get_type("ManualCpc"))
+            client.copy_from(
+                c.manual_cpc, client.get_type("ManualCpc", version=API_VERSION)
+            )
         elif bid == "MAXIMIZE_CLICKS":
-            client.copy_from(c.target_spend, client.get_type("TargetSpend"))
+            client.copy_from(
+                c.target_spend,
+                client.get_type("TargetSpend", version=API_VERSION),
+            )
         else:
-            mc = client.get_type("MaximizeConversions")
+            mc = client.get_type("MaximizeConversions", version=API_VERSION)
             if cpa is not None:
                 mc.target_cpa_micros = cpa
             client.copy_from(c.maximize_conversions, mc)
@@ -445,13 +451,13 @@ def create(
 
         criteria = []
         for g in geos:
-            op = client.get_type("MutateOperation")
+            op = client.get_type("MutateOperation", version=API_VERSION)
             cc = op.campaign_criterion_operation.create
             cc.campaign = campaign_rn
             cc.location.geo_target_constant = f"geoTargetConstants/{g}"
             criteria.append(op)
         for lg in langs:
-            op = client.get_type("MutateOperation")
+            op = client.get_type("MutateOperation", version=API_VERSION)
             cc = op.campaign_criterion_operation.create
             cc.campaign = campaign_rn
             cc.language.language_constant = f"languageConstants/{lg}"
@@ -542,7 +548,7 @@ def create_ad_group(
     cpc = m.non_negative_micros(cpc_bid_micros, "cpc_bid_micros")
 
     def operations(client):
-        op = client.get_type("MutateOperation")
+        op = client.get_type("MutateOperation", version=API_VERSION)
         g = op.ad_group_operation.create
         g.campaign = f"customers/{cid}/campaigns/{camp}"
         g.name = name.strip()
@@ -622,18 +628,18 @@ def create_ad(
         raise ToolError("Error: 'final_urls' is required.")
 
     def operations(client):
-        op = client.get_type("MutateOperation")
+        op = client.get_type("MutateOperation", version=API_VERSION)
         aga = op.ad_group_ad_operation.create
         aga.ad_group = f"customers/{cid}/adGroups/{group}"
         aga.status = client.enums.AdGroupAdStatusEnum.PAUSED
         aga.ad.final_urls.extend(final_urls)
         rsa = aga.ad.responsive_search_ad
         for text in headlines:
-            asset = client.get_type("AdTextAsset")
+            asset = client.get_type("AdTextAsset", version=API_VERSION)
             asset.text = text
             rsa.headlines.append(asset)
         for text in descriptions:
-            asset = client.get_type("AdTextAsset")
+            asset = client.get_type("AdTextAsset", version=API_VERSION)
             asset.text = text
             rsa.descriptions.append(asset)
         if path1:

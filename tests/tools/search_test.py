@@ -12,145 +12,189 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test cases for the search tool."""
+"""Test cases for the search tool (adnero: GAQL or parts, bounded pages, enum names)."""
 
+import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, mock_open
 
+import pytest
+from fastmcp.exceptions import ToolError
+from google.ads.googleads.errors import GoogleAdsException
+from google.ads.googleads.v26.services.types.google_ads_service import (
+    GoogleAdsRow,
+    SearchGoogleAdsResponse,
+)
+from google.protobuf.field_mask_pb2 import FieldMask
+
+from ads_mcp.core import gaql
 from ads_mcp.tools import search
 
 
-class TestSearch(unittest.TestCase):
-    """Test cases for the search tool."""
+def _row(i):
+    row = GoogleAdsRow()
+    row.campaign.id = i
+    row.campaign.name = f"C{i}"
+    row.campaign.status = 2  # ENABLED
+    return row
 
-    @patch("ads_mcp.utils.get_googleads_service")
-    @patch("ads_mcp.utils.format_output_row")
-    def test_search_basic(self, mock_format_row, mock_get_service):
-        """Tests that the search function constructs the correct query and processes results."""
-        # Setup mock service and search stream
-        mock_service = MagicMock()
-        mock_get_service.return_value = mock_service
 
-        # Mock result results
-        mock_batch = MagicMock()
-        mock_batch.results = [MagicMock(), MagicMock()]
-        mock_batch.field_mask.paths = ["campaign.id", "campaign.name"]
-        mock_service.search_stream.return_value = [mock_batch]
+class FakeGoogleAds:
+    """GoogleAdsService.search over canned pages: page_token -> (row ids, next token)."""
 
-        mock_format_row.side_effect = [
-            {"id": 1, "name": "C1"},
-            {"id": 2, "name": "C2"},
-        ]
+    def __init__(self, pages, error=None):
+        self.pages = pages
+        self.error = error
+        self.requests = []
 
-        # Call search
-        results = search.search(
-            customer_id="1234567890",
-            fields=["campaign.id", "campaign.name"],
-            resource="campaign",
-            conditions=["campaign.status = 'ENABLED'"],
-            orderings=["campaign.name ASC"],
-            limit=10,
+    def search(self, request):
+        self.requests.append(dict(request))
+        if self.error:
+            raise self.error
+        ids, nxt = self.pages[request.get("page_token", "")]
+        response = SearchGoogleAdsResponse(
+            results=[_row(i) for i in ids], next_page_token=nxt
         )
-
-        # Verify query
-        expected_query = (
-            "SELECT campaign.id,campaign.name FROM campaign "
-            "WHERE campaign.status = 'ENABLED' "
-            "ORDER BY campaign.name ASC "
-            "LIMIT 10 "
-            "PARAMETERS omit_unselected_resource_names=true"
+        type(response).pb(response).field_mask.CopyFrom(
+            FieldMask(paths=["campaign.id", "campaign.name", "campaign.status"])
         )
-        mock_service.search_stream.assert_called_once_with(
-            customer_id="1234567890", query=expected_query
+        return SimpleNamespace(pages=iter([response]))
+
+
+@pytest.fixture
+def fake(monkeypatch):
+    def install(pages, error=None):
+        service = FakeGoogleAds(pages, error)
+        monkeypatch.setattr(
+            "ads_mcp.utils.get_googleads_service",
+            lambda name, login_customer_id=None: service,
         )
+        return service
 
-        # Verify results
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["id"], 1)
-        self.assertEqual(results[1]["name"], "C2")
+    return install
 
-    @patch("ads_mcp.utils.get_googleads_service")
-    @patch("ads_mcp.utils.format_output_row")
-    def test_search_with_int_customer_id(
-        self, mock_format_row, mock_get_service
-    ):
-        """Tests that integer customer_id is sanitized to string of digits."""
-        mock_service = MagicMock()
-        mock_get_service.return_value = mock_service
 
-        mock_batch = MagicMock()
-        mock_batch.results = []
-        mock_batch.field_mask.paths = ["campaign.id"]
-        mock_service.search_stream.return_value = [mock_batch]
+@pytest.mark.parametrize(
+    "kwargs, sent",
+    [
+        (
+            {"query": "SELECT campaign.id FROM campaign"},
+            "SELECT campaign.id FROM campaign ORDER BY campaign.id",
+        ),
+        (
+            {
+                "fields": ["campaign.id", "campaign.name"],
+                "resource": "campaign",
+                "conditions": ["campaign.status = 'ENABLED'"],
+                "orderings": ["campaign.name ASC"],
+                "limit": 10,
+            },
+            "SELECT campaign.id,campaign.name FROM campaign WHERE campaign.status = 'ENABLED' "
+            "ORDER BY campaign.name ASC LIMIT 10 PARAMETERS omit_unselected_resource_names=true",
+        ),
+    ],
+)
+def test_both_query_forms(fake, kwargs, sent):
+    service = fake({"": ([1, 2], "")})
+    out = search.search(customer_id="123-456-7890", **kwargs)
+    assert service.requests == [{"customer_id": "1234567890", "query": sent}]
+    assert out.query == sent
+    assert out.rows == [
+        {"campaign.id": 1, "campaign.name": "C1", "campaign.status": "ENABLED"},
+        {"campaign.id": 2, "campaign.name": "C2", "campaign.status": "ENABLED"},
+    ]
+    assert (out.stopped_by, out.next_page_token) == ("END", None)
 
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"query": "SELECT campaign.id FROM campaign", "resource": "campaign"},
+        {"query": "SELECT campaign.id FROM campaign", "limit": 5},
+        {"query": "DELETE campaign"},
+        {"resource": "campaign"},
+        {"query": "SELECT campaign.id FROM campaign", "max_rows": 0},
+        {"query": "SELECT campaign.id FROM campaign", "max_rows": 10_001},
+        {"query": "SELECT campaign.id FROM campaign", "page_token": "garbage"},
+    ],
+)
+def test_refused_before_google(fake, kwargs):
+    service = fake({"": ([1], "")})
+    with pytest.raises(ToolError):
+        search.search(customer_id="1", **kwargs)
+    assert service.requests == []
+
+
+def test_paging(fake):
+    service = fake({"": (list(range(1, 6)), "G2"), "G2": ([6, 7], "")})
+    q = "SELECT campaign.id FROM campaign"
+    seen, token, stops = [], None, []
+    for _ in range(5):
+        out = search.search(
+            customer_id="1", query=q, max_rows=2, page_token=token
+        )
+        seen += [r["campaign.id"] for r in out.rows]
+        stops.append(out.stopped_by)
+        token = out.next_page_token
+        if not token:
+            break
+    assert seen == [1, 2, 3, 4, 5, 6, 7]
+    assert stops == ["MAX_ROWS", "MAX_ROWS", "END", "END"]
+    assert [r.get("page_token", "") for r in service.requests] == [
+        "",
+        "",
+        "",
+        "G2",
+    ]
+
+
+def test_a_token_from_another_query_is_refused(fake):
+    fake({"": (list(range(1, 6)), "")})
+    out = search.search(
+        customer_id="1", query="SELECT campaign.id FROM campaign", max_rows=1
+    )
+    with pytest.raises(ToolError, match="another query"):
         search.search(
-            customer_id=1234567890,
-            fields=["campaign.id"],
-            resource="campaign",
+            customer_id="1",
+            query="SELECT campaign.name FROM campaign",
+            page_token=out.next_page_token,
         )
-
-        mock_service.search_stream.assert_called_once_with(
-            customer_id="1234567890",
-            query="SELECT campaign.id FROM campaign PARAMETERS omit_unselected_resource_names=true",
-        )
-
-    @patch("ads_mcp.utils.get_googleads_service")
-    @patch("ads_mcp.utils.format_output_row")
-    def test_search_with_hyphenated_customer_id(
-        self, mock_format_row, mock_get_service
-    ):
-        """Tests that hyphenated string customer_id is sanitized to string of digits."""
-        mock_service = MagicMock()
-        mock_get_service.return_value = mock_service
-
-        mock_batch = MagicMock()
-        mock_batch.results = []
-        mock_batch.field_mask.paths = ["campaign.id"]
-        mock_service.search_stream.return_value = [mock_batch]
-
+    with pytest.raises(ToolError, match="another query"):
         search.search(
-            customer_id="123-456-7890",
-            fields=["campaign.id"],
-            resource="campaign",
+            customer_id="2",
+            query="SELECT campaign.id FROM campaign",
+            page_token=out.next_page_token,
         )
 
-        mock_get_service.assert_called_once_with(
-            "GoogleAdsService", login_customer_id=None
-        )
-        mock_service.search_stream.assert_called_once_with(
-            customer_id="1234567890",
-            query="SELECT campaign.id FROM campaign PARAMETERS omit_unselected_resource_names=true",
-        )
 
-    @patch("ads_mcp.utils.get_googleads_service")
-    @patch("ads_mcp.utils.format_output_row")
-    def test_search_with_login_customer_id(
-        self, mock_format_row, mock_get_service
-    ):
-        """Tests that search forwards login_customer_id to get_googleads_service."""
-        mock_service = MagicMock()
-        mock_get_service.return_value = mock_service
+def test_byte_cap(fake, monkeypatch):
+    fake({"": (list(range(1, 50)), "")})
+    monkeypatch.setattr(gaql, "BYTE_CAP", 150)
+    out = search.search(
+        customer_id="1", query="SELECT campaign.id FROM campaign"
+    )
+    assert out.stopped_by == "BYTE_CAP"
+    assert 1 <= out.row_count < 49
+    assert out.next_page_token
 
-        mock_batch = MagicMock()
-        mock_batch.results = []
-        mock_batch.field_mask.paths = ["campaign.id"]
-        mock_service.search_stream.return_value = [mock_batch]
 
+def test_google_errors_are_structured(fake):
+    failure = MagicMock()
+    failure.errors = [SimpleNamespace(message="Unrecognized field")]
+    ex = GoogleAdsException(MagicMock(), MagicMock(), failure, "req-123")
+    fake({}, error=ex)
+    with pytest.raises(ToolError) as info:
         search.search(
-            customer_id="123-456-7890",
-            fields=["campaign.id"],
-            resource="campaign",
-            login_customer_id="999-888-7777",
+            customer_id="1", query="SELECT campaign.nope FROM campaign"
         )
+    text = str(info.value)
+    assert "Request ID: req-123" in text
+    assert "Unrecognized field" in text
 
-        mock_get_service.assert_called_once_with(
-            "GoogleAdsService", login_customer_id="999-888-7777"
-        )
-        mock_service.search_stream.assert_called_once_with(
-            customer_id="1234567890",
-            query="SELECT campaign.id FROM campaign PARAMETERS omit_unselected_resource_names=true",
-        )
 
+class TestSearchDescription(unittest.TestCase):
     def test_search_tool_description(self):
         """Tests that the tool description is generated correctly."""
         # Mocking open as if the file exists
@@ -180,41 +224,26 @@ class TestSearch(unittest.TestCase):
                     )
                     mock_log_error.assert_called_once()
 
-    @patch("ads_mcp.utils.get_googleads_service")
-    def test_search_google_ads_exception(self, mock_get_service):
-        """Tests that search handles GoogleAdsException and returns an error dict."""
-        from google.ads.googleads.errors import GoogleAdsException
 
-        mock_service = MagicMock()
-        mock_get_service.return_value = mock_service
+def test_unordered_queries_get_no_mid_page_token(fake):
+    fake({"": ([1, 2, 3], "G2")})
+    out = search.search(
+        customer_id="1", query="SELECT campaign.name FROM campaign", max_rows=2
+    )
+    assert out.stopped_by == "MAX_ROWS"
+    assert out.next_page_token is None and "ORDER BY" in out.note
+    # a whole Google page read: Google's own token continues it
+    whole = search.search(
+        customer_id="1", query="SELECT campaign.name FROM campaign"
+    )
+    assert whole.next_page_token and whole.note is None
 
-        # Mock failure object
-        mock_error = MagicMock()
-        mock_error.message = "Invalid field name"
-        mock_failure = MagicMock()
-        mock_failure.errors = [mock_error]
 
-        # Instantiate real exception with dummy args
-        mock_ex = GoogleAdsException(
-            MagicMock(), MagicMock(), MagicMock(), MagicMock()
-        )
-        mock_ex.failure = mock_failure
-        mock_ex.request_id = "req-123"
-
-        mock_service.search_stream.side_effect = mock_ex
-
-        # Call search and verify it raises ToolError
-        from fastmcp.exceptions import ToolError
-
-        with self.assertRaises(ToolError) as context:
-            search.search(
-                customer_id="1234567890",
-                fields=["invalid_field"],
-                resource="campaign",
-            )
-
-        # Verify error message
-        self.assertIn(
-            "Google Ads API Error: Invalid field name", str(context.exception)
-        )
-        self.assertIn("Request ID: req-123", str(context.exception))
+def test_segments_get_no_mid_page_token(fake):
+    fake({"": ([1, 2, 3], "")})
+    out = search.search(
+        customer_id="1",
+        query="SELECT campaign.id, segments.date FROM campaign",
+        max_rows=2,
+    )
+    assert out.next_page_token is None and "segments" in out.note

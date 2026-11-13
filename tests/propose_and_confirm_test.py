@@ -20,13 +20,13 @@ from unittest.mock import MagicMock
 
 from fastmcp.exceptions import ToolError
 from google.ads.googleads.errors import GoogleAdsException
-from google.ads.googleads.v25.errors.types.errors import (
+from google.ads.googleads.v26.errors.types.errors import (
     ErrorCode,
     GoogleAdsError,
     GoogleAdsFailure,
 )
-from google.ads.googleads.v25.errors.types.request_error import RequestErrorEnum
-from google.ads.googleads.v25.services.types.asset_service import AssetOperation
+from google.ads.googleads.v26.errors.types.request_error import RequestErrorEnum
+from google.ads.googleads.v26.services.types.asset_service import AssetOperation
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp import utils
 

@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import propose_and_confirm as pac
 import ads_mcp.utils as utils
 
@@ -172,7 +173,7 @@ def manage_labels(
         ga_client, "LabelService"
     )
 
-    label_op = ga_client.get_type("LabelOperation")
+    label_op = ga_client.get_type("LabelOperation", version=API_VERSION)
     target_resource_name: str | None = None
 
     if op_upper == "CREATE":
@@ -248,7 +249,7 @@ def manage_labels(
         },
     )
 
-    request = ga_client.get_type("MutateLabelsRequest")
+    request = ga_client.get_type("MutateLabelsRequest", version=API_VERSION)
     request.customer_id = cleaned_customer_id
     request.operations.append(label_op)
     request.validate_only = validate_only
@@ -351,7 +352,7 @@ def manage_label_associations(
     service = utils.get_googleads_service_from_client(
         ga_client, config["service"]
     )
-    op = ga_client.get_type(config["operation"])
+    op = ga_client.get_type(config["operation"], version=API_VERSION)
 
     resource_name: str | None = None
     label_resource_name: str | None = None
@@ -449,7 +450,7 @@ def manage_label_associations(
         },
     )
 
-    request = ga_client.get_type(config["request"])
+    request = ga_client.get_type(config["request"], version=API_VERSION)
     request.customer_id = cleaned_customer_id
     request.operations.append(op)
     request.validate_only = validate_only

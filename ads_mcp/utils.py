@@ -29,15 +29,13 @@ from unittest.mock import patch
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.util import get_nested_attr
-from google.ads.googleads.v25.services.services.google_ads_service import (
-    GoogleAdsServiceClient,
-)
 import google.auth
-from google.protobuf.json_format import MessageToDict
-from google.protobuf.message import Message as PbMessage
-import proto
 
+from ads_mcp.api_version import API_VERSION
 from ads_mcp import adnero_auth
+from ads_mcp.core import errors as errors_core
+from ads_mcp.core.errors import GoogleAdsErrorReport
+from ads_mcp.core.plain import to_plain
 from ads_mcp.mcp_header_interceptor import MCPHeaderInterceptor
 
 # filename for generated field information used by search
@@ -69,15 +67,30 @@ def is_remote_oauth_mode() -> bool:
     )
 
 
+def google_ads_error_report(ex: GoogleAdsException) -> GoogleAdsErrorReport:
+    """Every error of a GoogleAdsException as structured data (code, field path, trigger, policy, fix)."""
+    failure = getattr(ex, "failure", None)
+    try:
+        plain = to_plain(failure)
+    except (
+        Exception
+    ):  # a failure that is not a proto message (tests, odd transports)
+        plain = None
+    if not isinstance(plain, dict):
+        plain = {
+            "errors": [
+                {"message": str(getattr(e, "message", ""))}
+                for e in (getattr(failure, "errors", None) or [])
+            ]
+        }
+    return errors_core.report_of(
+        plain, str(getattr(ex, "request_id", "") or "")
+    )
+
+
 def format_google_ads_error(ex: GoogleAdsException) -> str:
-    """Formats a GoogleAdsException into a human-readable error message."""
-    error_msgs = [
-        f"Google Ads API Error: {error.message}" for error in ex.failure.errors
-    ]
-    details = "\n".join(error_msgs)
-    if details:
-        return f"Request ID: {ex.request_id}\n{details}"
-    return f"Request ID: {ex.request_id}"
+    """A GoogleAdsException as text: a readable line per error plus the structured JSON (see core/errors.py)."""
+    return errors_core.render(google_ads_error_report(ex))
 
 
 @contextmanager
@@ -158,8 +171,8 @@ def _get_googleads_client(
     args: dict[str, Any] = {
         "credentials": _create_credentials(),
         "use_proto_plus": True,
-        # One pinned API version for every service and type (GOOGLE_ADS_API_VERSION, default v26).
-        "version": adnero_auth.api_version(),
+        # One pinned API version for every service and type (ads_mcp.api_version).
+        "version": API_VERSION,
     }
 
     # If the developer-token is not set, avoid setting None.
@@ -186,7 +199,7 @@ def get_googleads_service_from_client(
     """Returns a Google Ads service client with the MCP telemetry header attached."""
     return client.get_service(
         service_name,
-        version=adnero_auth.api_version(),
+        version=API_VERSION,
         interceptors=[MCPHeaderInterceptor()],
     )
 
@@ -194,7 +207,7 @@ def get_googleads_service_from_client(
 def get_googleads_service(
     serviceName: str,
     login_customer_id: str | int | None = None,
-) -> GoogleAdsServiceClient:
+) -> Any:
     return get_googleads_service_from_client(
         _get_googleads_client(login_customer_id=login_customer_id),
         serviceName,
@@ -202,7 +215,7 @@ def get_googleads_service(
 
 
 def get_googleads_type(typeName: str):
-    return _get_googleads_client().get_type(typeName)
+    return _get_googleads_client().get_type(typeName, version=API_VERSION)
 
 
 def get_googleads_client(
@@ -212,19 +225,11 @@ def get_googleads_client(
 
 
 def format_output_value(value: Any) -> Any:
-    if isinstance(value, proto.Enum):
-        return value.name
-    elif isinstance(value, proto.Message):
-        return proto.Message.to_dict(value)
-    elif isinstance(value, PbMessage):
-        return MessageToDict(value, preserving_proto_field_name=True)
-    elif hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
-        return [format_output_value(v) for v in value]
-    else:
-        return value
+    """Plain data with enum NAMES at every depth and API keys ('type', never 'type_')."""
+    return to_plain(value)
 
 
-def format_output_row(row: proto.Message, attributes):
+def format_output_row(row: Any, attributes):
     return {
         attr: format_output_value(get_nested_attr(row, attr))
         for attr in attributes

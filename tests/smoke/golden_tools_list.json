@@ -800,7 +800,7 @@
       "annotations": {
         "readOnlyHint": true
       },
-      "description": "Fetches data from the Google Ads API using the search method",
+      "description": "Fetches data from the Google Ads API with GAQL, one bounded page per call.\n\nPass EITHER `query` (a full GAQL string, e.g. \"SELECT campaign.id, campaign.name FROM campaign WHERE\ncampaign.status = 'ENABLED'\") OR `resource` + `fields` (+ `conditions`, `orderings`, `limit`).\nOne call is one Google Ads operation. At most `max_rows` rows (default 500, at most 10000) and about\n200 KB come back; when more exist, `next_page_token` is set: call again with the same query and it.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -824,11 +824,19 @@
             "description": "The id of the customer"
           },
           "fields": {
-            "description": "The fields to fetch",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The fields to fetch"
           },
           "limit": {
             "anyOf": [
@@ -840,7 +848,7 @@
               }
             ],
             "default": null,
-            "description": "The maximum number of rows to return"
+            "description": "The GAQL LIMIT (parts form only)"
           },
           "login_customer_id": {
             "anyOf": [
@@ -857,6 +865,18 @@
             "default": null,
             "description": "Optional manager customer ID to use as the login-customer-id header."
           },
+          "max_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Rows per answer (default 500, max 10000)"
+          },
           "orderings": {
             "default": [],
             "description": "How the data is ordered",
@@ -865,34 +885,108 @@
             },
             "type": "array"
           },
+          "page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "From a previous answer of the same query, to get the next rows"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A full GAQL SELECT statement (instead of resource + fields)"
+          },
           "resource": {
-            "description": "The resource to return fields from",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The resource to return fields from"
           }
         },
         "required": [
-          "customer_id",
-          "fields",
-          "resource"
+          "customer_id"
         ],
         "type": "object"
       },
       "name": "search_search",
       "outputSchema": {
+        "description": "One bounded page of GAQL rows.",
         "properties": {
-          "result": {
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "More rows exist: call again with the same query, customer_id and this page_token."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Set when more rows exist that this query cannot page to (no ORDER BY)."
+          },
+          "query": {
+            "description": "The GAQL that ran.",
+            "type": "string"
+          },
+          "row_count": {
+            "type": "integer"
+          },
+          "rows": {
+            "description": "One object per row, keyed by the selected field paths; enums as names.",
             "items": {
               "additionalProperties": true,
               "type": "object"
             },
             "type": "array"
+          },
+          "stopped_by": {
+            "description": "END: no more rows on this page. MAX_ROWS / BYTE_CAP: the answer was cut; page on.",
+            "enum": [
+              "END",
+              "MAX_ROWS",
+              "BYTE_CAP"
+            ],
+            "type": "string"
           }
         },
         "required": [
-          "result"
+          "rows",
+          "row_count",
+          "stopped_by",
+          "query"
         ],
-        "type": "object",
-        "x-fastmcp-wrap-result": true
+        "type": "object"
       },
       "title": "Search Search"
     }

@@ -15,10 +15,10 @@
 """Test cases for the utils module."""
 
 import unittest
-from google.ads.googleads.v25.enums.types.campaign_status import (
+from google.ads.googleads.v26.enums.types.campaign_status import (
     CampaignStatusEnum,
 )
-from google.ads.googleads.v25.common.types.metrics import Metrics
+from google.ads.googleads.v26.common.types.metrics import Metrics
 from google.protobuf.field_mask_pb2 import FieldMask
 
 from ads_mcp import utils
@@ -47,8 +47,8 @@ class TestUtils(unittest.TestCase):
         metrics = Metrics(clicks=10, impressions=100)
         formatted = utils.format_output_value(metrics)
         self.assertIsInstance(formatted, dict)
-        self.assertEqual(formatted.get("clicks"), "10")
-        self.assertEqual(formatted.get("impressions"), "100")
+        self.assertEqual(formatted.get("clicks"), 10)
+        self.assertEqual(formatted.get("impressions"), 100)
 
     def test_format_output_value_repeated_primitive(self):
         """Tests that repeated primitive values are formatted."""
@@ -64,8 +64,8 @@ class TestUtils(unittest.TestCase):
         formatted = utils.format_output_value([metrics1, metrics2])
         self.assertIsInstance(formatted, list)
         self.assertEqual(len(formatted), 2)
-        self.assertEqual(formatted[0].get("clicks"), "10")
-        self.assertEqual(formatted[1].get("clicks"), "20")
+        self.assertEqual(formatted[0].get("clicks"), 10)
+        self.assertEqual(formatted[1].get("clicks"), 20)
 
     def test_format_output_value_bare_protobuf(self):
         """Tests that bare protobuf messages are formatted correctly."""
@@ -278,12 +278,12 @@ class TestUtils(unittest.TestCase):
         """Tests formatting of GoogleAdsException into readable error messages."""
         from unittest.mock import MagicMock
         from google.ads.googleads.errors import GoogleAdsException
-        from google.ads.googleads.v25.errors.types.errors import (
+        from google.ads.googleads.v26.errors.types.errors import (
             ErrorCode,
             GoogleAdsError,
             GoogleAdsFailure,
         )
-        from google.ads.googleads.v25.errors.types.request_error import (
+        from google.ads.googleads.v26.errors.types.request_error import (
             RequestErrorEnum,
         )
 
