@@ -266,7 +266,7 @@ def _summary(
 
 def _fail(tool: str, exc: Exception) -> ToolError:
     if isinstance(exc, GoogleAdsException):
-        return ToolError(
+        return GoogleRefused(
             f"{tool} was refused by Google:\n{utils.format_google_ads_error(exc)}"
         )
     return ToolError(f"{tool} failed: {exc}")
@@ -280,6 +280,20 @@ _NEEDS_APPROVAL = (
     "A change needs the person's approval first: call with validate_only=true, show the change_items, then call "
     "again with validate_only=false and the plan_id."
 )
+
+
+class GoogleRefused(ToolError):
+    """Google answered the apply with an error: nothing changed, so the plan is released for a retry."""
+
+
+def _apply(plan_id: str, digest: str, commit: Callable[[], Any]) -> Any:
+    """Consume the plan, apply; on a definite refusal from Google give the plan back."""
+    _consume(plan_id, digest)
+    try:
+        return commit()
+    except GoogleRefused:
+        plans.release(plan_id)
+        raise
 
 
 def _consume(plan_id: str, digest: str) -> None:
@@ -324,11 +338,9 @@ def gate(
             next_step=_PROPOSED_NEXT,
         )
     if plan_id:
-        _consume(plan_id, digest)
-        return commit()
+        return _apply(plan_id, digest, commit)
     if _accepted(ctx, digest):
-        _consume(ctx.request_state, digest)
-        return commit()
+        return _apply(ctx.request_state, digest, commit)
     if client_can_elicit(ctx):
         validate()
         return _ask(

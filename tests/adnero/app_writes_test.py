@@ -677,3 +677,40 @@ def test_the_plan_signs_the_request_sent(google, monkeypatch):
             create.campaign_create(
                 **BASE, validate_only=False, plan_id=proposal.plan_id
             )
+
+
+def test_a_plan_google_refused_can_be_retried(google, gads):
+    from google.ads.googleads.errors import GoogleAdsException
+
+    refusal = GoogleAdsException(
+        MagicMock(), MagicMock(), MagicMock(errors=[]), "req-1"
+    )
+    _, p = account()
+    with p:
+        proposal = create.campaign_create(**BASE)
+        with patch("ads_mcp.utils.get_googleads_service_from_client") as svc:
+            svc.return_value.mutate.side_effect = refusal
+            with pytest.raises(ToolError, match="refused"):
+                create.campaign_create(
+                    **BASE, validate_only=False, plan_id=proposal.plan_id
+                )
+        applied = create.campaign_create(
+            **BASE, validate_only=False, plan_id=proposal.plan_id
+        )
+    assert applied.status == "APPLIED"
+
+
+def test_an_unknown_outcome_keeps_the_plan_used(google):
+    _, p = account()
+    with p:
+        proposal = create.campaign_create(**BASE)
+        with patch("ads_mcp.utils.get_googleads_service_from_client") as svc:
+            svc.return_value.mutate.side_effect = TimeoutError("deadline")
+            with pytest.raises(ToolError):
+                create.campaign_create(
+                    **BASE, validate_only=False, plan_id=proposal.plan_id
+                )
+        with pytest.raises(ToolError, match="already applied"):
+            create.campaign_create(
+                **BASE, validate_only=False, plan_id=proposal.plan_id
+            )

@@ -19,9 +19,12 @@ GOOGLE_ADS_MCP_SHARED_SECRET (HMAC with a fixed label, so the key itself is neve
 writes are refused (a per-process random key would break across workers and restarts). The secret is never
 logged or returned.
 
-Single use: a plan applies once. The record of applied plans lives in this process's memory until the plan
-expires: with several workers (or after a restart) a plan could be applied once per worker, so the gateway
-build runs one worker; a shared store is the fix if that changes.
+Single use: a plan applies once; a plan Google refused on apply is released, so the same plan may be retried
+within its 15 minutes (an apply whose outcome is unknown, a timeout, stays used). The record of applied plans
+lives in this process's memory, so:
+- a plan issued before this process started is refused (a restart cannot replay one);
+- the server refuses to start with more than one worker or replica (WEB_CONCURRENCY, UVICORN_WORKERS,
+  GOOGLE_ADS_MCP_REPLICAS > 1): there is no shared plan store yet, and each worker would accept a plan once.
 """
 
 import functools
@@ -66,13 +69,37 @@ def _secret() -> bytes | None:
 
 _used: dict[str, int] = {}
 _lock = threading.Lock()
+_WORKER_ENVS = ("WEB_CONCURRENCY", "UVICORN_WORKERS", "GOOGLE_ADS_MCP_REPLICAS")
+
+
+def _clock() -> int:
+    return int(time.time())
+
+
+_started = _clock()
+
+
+def check_single_worker() -> None:
+    """Startup: one worker and one replica only (the applied-plan record is in-process memory)."""
+    many = {
+        name: os.environ[name]
+        for name in _WORKER_ENVS
+        if os.environ.get(name, "").strip() not in ("", "0", "1")
+    }
+    if many:
+        raise RuntimeError(
+            f"{', '.join(f'{k}={v[:10]}' for k, v in many.items())}: this server keeps applied plans in memory, "
+            "so it runs as ONE worker and ONE replica; a shared plan store is needed for more (none exists yet)."
+        )
 
 
 def reset() -> None:
-    """Forget the cached secret and the applied plans (tests, key rotation)."""
+    """Forget the cached secret and the applied plans, and start the clock again (tests, key rotation)."""
+    global _started
     getattr(_secret, "cache_clear", lambda: None)()
     with _lock:
         _used.clear()
+    _started = now()
 
 
 def now() -> int:
@@ -98,10 +125,18 @@ def problem(plan_id: str | None, digest: str) -> str | None:
     result = core.verify(secret, plan_id, digest, now())
     if not result.ok:
         return _refusal(result.error)
+    if result.value - core.PLAN_TTL_S < _started:
+        return _refusal("RESTARTED")
     with _lock:
         if plan_id.strip().lower() in _used:
             return _refusal("USED")
     return None
+
+
+def release(plan_id: str) -> None:
+    """Google refused the apply: the plan may be applied again (until it expires)."""
+    with _lock:
+        _used.pop(plan_id.strip().lower(), None)
 
 
 def consume(plan_id: str, digest: str) -> str | None:

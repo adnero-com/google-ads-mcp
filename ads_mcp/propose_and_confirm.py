@@ -323,6 +323,10 @@ def propose_and_confirm(
     except ToolError:
         raise
     except Exception as exc:
+        if isinstance(exc, GoogleAdsException):
+            plans.release(
+                checksum
+            )  # Google refused it: nothing changed, the plan may be retried
         msg = _format_exception(error_prefix, exc)
         logger.error("%s", msg)
         raise ToolError(msg) from exc

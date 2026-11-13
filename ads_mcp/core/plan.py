@@ -20,13 +20,21 @@ PLAN_TTL_S = 15 * 60
 _VERSION = "p1"
 
 PlanError = Literal[
-    "MISSING", "MALFORMED", "EXPIRED", "MISMATCH", "USED", "UNCONFIGURED"
+    "MISSING",
+    "MALFORMED",
+    "EXPIRED",
+    "MISMATCH",
+    "USED",
+    "UNCONFIGURED",
+    "RESTARTED",
 ]
 
 MESSAGES: dict[str, str] = {
     "MISSING": "a plan_id from a validate_only=true call is required to apply.",
     "MALFORMED": "this plan_id was not issued by this server: preview again with validate_only=true.",
     "EXPIRED": "the plan expired (plans last 15 minutes): preview again with validate_only=true.",
+    "RESTARTED": "this plan was issued before the server restarted (applied plans are remembered in memory, so "
+    "older plans are refused): preview again with validate_only=true.",
     "USED": "this plan was already applied (a plan applies once): preview again with validate_only=true for "
     "another change.",
     "UNCONFIGURED": "writes are off on this server: it has no plan key (set GOOGLE_ADS_MCP_PLAN_SECRET, 32+ "

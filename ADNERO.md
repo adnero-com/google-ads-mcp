@@ -132,8 +132,13 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   sha256 of the serialized request actually sent}` (`core/plan.py`, `plans.py`). A model cannot mint one without
   the preview, any changed argument or request voids it, and it expires after 15 minutes. **A plan applies once**:
   the second apply of the same plan is refused before Google (creates can never be sent twice with one
-  approval); each preview is a new plan. The record of applied plans is in-process memory until expiry, so the
-  gateway build runs one worker (several workers would each accept a plan once). Every write goes through one gate (`adnero_mutate.gate`): the typed tools, `api_mutate`, and
+  approval); each preview is a new plan. A plan Google refused on apply is released and may be retried within
+  its 15 minutes; an apply with an unknown outcome (timeout) stays used. The record of applied plans is
+  in-process memory, so: a plan issued before this process started is refused (a restart cannot replay one),
+  and **the server refuses to start with more than one worker or replica** (`WEB_CONCURRENCY`,
+  `UVICORN_WORKERS` or `GOOGLE_ADS_MCP_REPLICAS` > 1) until a shared plan store exists (none does yet). Deployers
+  that scale by replicas must set `GOOGLE_ADS_MCP_REPLICAS`. `api_mutate` keeps a plan used on any failed apply
+  (its REST errors are not told apart from timeouts yet). Every write goes through one gate (`adnero_mutate.gate`): the typed tools, `api_mutate`, and
   upstream's `propose_and_confirm` (labels, assets_create_asset, upload_video_asset). Compatibility: the
   answer carries the plan in both `plan_id` and `checksum`; our tools take `plan_id` and still accept `checksum`;
   upstream's tools keep their `checksum` argument, which now carries the plan. A stored old sha256 checksum is

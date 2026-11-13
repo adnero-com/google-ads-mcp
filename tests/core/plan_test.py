@@ -121,6 +121,7 @@ def test_every_error_has_a_message():
         "MISMATCH",
         "USED",
         "UNCONFIGURED",
+        "RESTARTED",
     }
 
 

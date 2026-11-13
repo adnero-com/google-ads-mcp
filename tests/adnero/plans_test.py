@@ -79,3 +79,61 @@ def test_a_plan_applies_once(monkeypatch):
     assert (
         plans.consume(plans.issue(digest), digest) is None
     )  # a new preview is a new plan
+
+
+def test_a_restart_cannot_replay_a_plan(monkeypatch):
+    monkeypatch.setenv("GOOGLE_ADS_MCP_PLAN_SECRET", "p" * 32)
+    digest = core.digest_of("t", "1", {})
+    issued = plans.issue(digest)
+    monkeypatch.setattr(
+        plans, "_started", plans.now() + 1
+    )  # the process started after it was issued
+    assert "restarted" in plans.consume(issued, digest)
+
+
+def test_a_refused_plan_can_be_retried(monkeypatch):
+    monkeypatch.setenv("GOOGLE_ADS_MCP_PLAN_SECRET", "p" * 32)
+    digest = core.digest_of("t", "1", {})
+    issued = plans.issue(digest)
+    assert plans.consume(issued, digest) is None
+    plans.release(issued)
+    assert plans.consume(issued, digest) is None
+
+
+@pytest.mark.parametrize(
+    "env, starts",
+    [
+        ({}, True),
+        ({"WEB_CONCURRENCY": "1"}, True),
+        ({"UVICORN_WORKERS": "0"}, True),
+        ({"WEB_CONCURRENCY": "4"}, False),
+        ({"UVICORN_WORKERS": "2"}, False),
+        ({"GOOGLE_ADS_MCP_REPLICAS": "3"}, False),
+    ],
+)
+def test_one_worker_only(monkeypatch, env, starts):
+    for k in ("WEB_CONCURRENCY", "UVICORN_WORKERS", "GOOGLE_ADS_MCP_REPLICAS"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    if starts:
+        plans.check_single_worker()
+    else:
+        with pytest.raises(RuntimeError, match="ONE worker"):
+            plans.check_single_worker()
+
+
+def test_the_server_refuses_to_start_with_several_workers(monkeypatch):
+    from unittest.mock import patch
+
+    from ads_mcp import adnero_auth, server
+
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    with (
+        patch.object(adnero_auth, "serve") as serve,
+        patch.object(server.mcp, "run") as run,
+    ):
+        with pytest.raises(RuntimeError):
+            server.run_server()
+    serve.assert_not_called()
+    run.assert_not_called()
