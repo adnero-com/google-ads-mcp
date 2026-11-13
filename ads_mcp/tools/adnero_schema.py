@@ -334,9 +334,19 @@ class MutateSchema(BaseModel):
         default=None,
         description='In a googleAds:mutate (several resources at once): {"mutateOperations": [{<key>: <schema>}]}.',
     )
-    json_schema: dict = Field(
-        description="JSON Schema 2020-12 of ONE operation exactly as api_mutate takes it (lowerCamelCase); "
-        "x-rules: limits the protos do not carry (text lengths, ratios, counts...)."
+    fields_summary: dict | None = Field(
+        default=None,
+        description="The default answer: one line per field of the operation: type (enum values, message "
+        "sub-fields, list of...) and flags (required, immutable, oneof <group>, ref <resource>).",
+    )
+    rules: list[dict] = Field(
+        default_factory=list,
+        description="Limits the protos do not carry (text lengths, ratios, counts...), from the rules layer.",
+    )
+    json_schema: dict | None = Field(
+        default=None,
+        description="With `fields` or full=true: JSON Schema 2020-12 of ONE operation exactly as api_mutate takes "
+        "it (lowerCamelCase), x-rules included.",
     )
 
 
@@ -348,20 +358,22 @@ def get_mutate(
     resource: str,
     operation: Literal["create", "update", "remove"],
     fields: list[str] | None = None,
+    full: bool = False,
     brief: bool = False,
 ) -> MutateSchema:
-    """The JSON Schema of one operation body for api_mutate: output-only fields left out, required fields listed,
-    immutable fields marked (refused in an update), oneofs as oneOf, enums as names, int64 as digit strings, plus
-    the rules layer's limits in `x-rules`. api_mutate checks every body against this before Google sees it.
-
-    Pass `fields` to keep only part of a big resource, e.g. resource='ad_group_ad', fields=['ad.appAd', 'status',
-    'adGroup']. Free: no Google call.
+    """One operation body for api_mutate. By default a short summary: one line per writable field (type, enum
+    values, sub-fields, required / immutable / oneof / ref flags) plus the rules layer's limits. Then ask for the
+    JSON Schema of just the part you write with `fields`, e.g. resource='ad_group_ad', fields=['ad.appAd',
+    'status', 'adGroup'] (output-only fields left out, oneofs as oneOf, enums as names, int64 as digit strings),
+    or full=true for all of it (campaign: ~60 KB). api_mutate checks every body against this schema before
+    Google sees it; an update's mask may not name an immutable field. Free: no Google call.
 
     Args:
         resource: The GAQL name ('campaign'), message name ('Campaign') or REST collection ('campaigns').
         operation: 'create', 'update' (needs resourceName and updateMask) or 'remove'.
-        fields: Dotted lowerCamelCase paths to keep (default: every writable field).
-        brief: Drop descriptions (smaller answer).
+        fields: Dotted lowerCamelCase paths: the JSON Schema of just those.
+        full: The whole JSON Schema.
+        brief: With fields / full: drop descriptions.
     """
     data = store.load()
     name = resolve_resource(data, resource)
@@ -372,6 +384,19 @@ def get_mutate(
         raise ToolError(
             f"Error: {name} supports {', '.join(mutate['operations'])}, not {operation}."
         )
+    common = dict(
+        resource=name,
+        operation=operation,
+        path=mutate["path"],
+        operations_key=mutate["operations_key"],
+        google_ads_key=google_ads_key(data, mutate["operation"]),
+        rules=rules.rules_for(name),
+    )
+    if not fields and not full:
+        return MutateSchema(
+            **common,
+            fields_summary=assemble.operation_summary(data, name, operation),
+        )
     try:
         schema = assemble.operation_schema(
             data, name, operation, fields or (), brief
@@ -379,12 +404,7 @@ def get_mutate(
     except assemble.SchemaPathError as exc:
         raise ToolError(f"Error: {exc}") from None
     return MutateSchema(
-        resource=name,
-        operation=operation,
-        path=mutate["path"],
-        operations_key=mutate["operations_key"],
-        google_ads_key=google_ads_key(data, mutate["operation"]),
-        json_schema={**schema, "x-rules": rules.rules_for(name)},
+        **common, json_schema={**schema, "x-rules": common["rules"]}
     )
 
 

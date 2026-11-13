@@ -219,9 +219,11 @@ lowerCamelCase paths (oneof branches not named are pruned), `brief` drops descri
   metadata (`ads_mcp/schema/fieldmeta.py`: data_type, enum_values, is_repeated, selectable/filterable/sortable,
   selectable_with, attribute_resources, metrics, segments), cached per process. 1-2 Google requests the first time a
   resource is asked for, then none. Google failing leaves `query_error`, never fails the schema.
-- `schema_get_mutate` {resource, operation: create|update|remove, fields?, brief?}: one operation body as api_mutate
-  takes it (output-only dropped; update: resourceName + updateMask required, immutables marked), plus `x-rules` from
-  `ads_mcp/rules.rules_for(resource)` (the hand-written rules layer). No Google call.
+- `schema_get_mutate` {resource, operation: create|update|remove, fields?, full?, brief?}: by default a summary, one line
+  per writable field (type, enum values, sub-fields; required / immutable / oneof / ref flags) plus `rules` from
+  `ads_mcp/rules.rules_for(resource)` (campaign ~7 KB, ad_group_ad ~1 KB, asset ~5 KB). `fields` (dotted paths) or
+  `full` gives the JSON Schema of one operation body as api_mutate takes it (output-only dropped; update:
+  resourceName + updateMask required, immutables marked), `x-rules` included. No Google call.
 - `schema_get_enum` {enum}: values + descriptions. No Google call.
 - `schema_check_query` {query}: GAQL checked against field metadata without running it (`ads_mcp/schema/gaql.py`).
   1 Google request when a named field is not cached yet.
@@ -233,6 +235,11 @@ lowerCamelCase paths (oneof branches not named are pruned), `brief` drops descri
 - `api_mutate` then checks the body against these schemas before Google sees it (`ads_mcp/schema/validate.py`): problems come
   back as a ToolError holding `{"error": "SCHEMA_INVALID", "problems": [{path (JSON pointer), code, message}]}`,
   codes REQUIRED, UNKNOWN_FIELD (with the camelCase name when that is the fix), ONE_OF, IMMUTABLE (in an update),
-  BAD_ENUM, BAD_TYPE (int64 is a digit string), BAD_OPERATION, UNKNOWN_RESOURCE.
+  BAD_ENUM, BAD_TYPE (int64 is a digit string), BAD_OPERATION, UNKNOWN_RESOURCE, plus:
+  - FOREIGN_CUSTOMER (`schema/scope.py`): every `resourceName`, `remove`, `x-resource` reference to a customer-owned
+    resource and any other `customers/<id>/...` string must start with `customers/{customer_id}/` of the call;
+  - BAD_MASK / IMMUTABLE (`schema/mask.py`): every updateMask path must exist (snake_case or camelCase segments, not
+    past a repeated field); a path naming an immutable field, or a message whose body sets one, is refused even when
+    the body omits it. Fields in the body that the mask does not name are ignored, as Google does.
 - The Discovery resource follows `API_VERSION` and is cached per process by its `revision` (re-checked daily, a
   failed re-check serves the cache).

@@ -318,3 +318,79 @@ def operation_schema(
 
 def enum_schema(data: Mapping, name: str) -> dict:
     return {"$schema": DIALECT, **data["enums"][name]}
+
+
+MAX_ENUM_SHOWN = 12
+MAX_SUBFIELDS = 15
+
+
+def describe(prop: Mapping, pool: Mapping, mode: Mode) -> str:
+    """One field as a short line: its type (enum values, message sub-fields, list of...)."""
+    if prop.get("x-enum"):
+        values = prop.get("enum", [])
+        shown = "|".join(values[:MAX_ENUM_SHOWN])
+        more = f"|...({len(values)})" if len(values) > MAX_ENUM_SHOWN else ""
+        return f"enum {prop['x-enum']}: {shown}{more}"
+    if prop.get("type") == "array":
+        return "list of " + describe(prop.get("items", {}), pool, mode)
+    name = ref_name(prop)
+    if name and name in pool:
+        subs = [
+            k
+            for k, v in pool[name].get("properties", {}).items()
+            if mode == "read" or not v.get("readOnly")
+        ]
+        more = ", ..." if len(subs) > MAX_SUBFIELDS else ""
+        return f"object {name} {{{', '.join(subs[:MAX_SUBFIELDS])}{more}}}"
+    if prop.get("type") == "string" and prop.get("pattern"):
+        return "int64 (digit string)"
+    if prop.get("contentEncoding") == "base64":
+        return "bytes (base64)"
+    if prop.get("type") == "object" and "additionalProperties" in prop:
+        return "map"
+    return str(prop.get("type", "any"))
+
+
+def _flags(key: str, prop: Mapping, required: set, groups: Mapping) -> str:
+    flags = [
+        "required" if key in required else "",
+        "immutable" if prop.get("x-immutable") else "",
+        f"oneof {groups[key]}" if key in groups else "",
+        f"ref {prop['x-resource']}" if prop.get("x-resource") else "",
+    ]
+    return "".join(f"; {f}" for f in flags if f)
+
+
+def operation_summary(data: Mapping, gaql: str, kind: OperationKind) -> dict:
+    """The operation as one line per field: `{"<kind>.name": "string; required", ...}` (the small default)."""
+    entry = data["index"]["resources"][gaql]
+    pool, enums = data["pool"], data["enums"]
+    op = pool[entry["mutate"]["operation"]]
+    if kind == "remove":
+        remove = op["properties"]["remove"]
+        return {
+            "remove": "resource name" + _flags("remove", remove, {"remove"}, {})
+        }
+    mode: Mode = "update" if kind == "update" else "create"
+    resource = shape(pool[entry["message"]], mode, enums)
+    required = (
+        {"resourceName"}
+        if kind == "update"
+        else set(resource.get("required", []))
+    )
+    groups = {m: g for g, ms in resource.get("x-oneof", {}).items() for m in ms}
+    lines = {
+        f"{kind}.{k}": describe(v, pool, mode) + _flags(k, v, required, groups)
+        for k, v in resource["properties"].items()
+    }
+    others = {
+        k: describe(inline_enums(v, enums), pool, mode)
+        for k, v in op["properties"].items()
+        if k not in ("create", "update", "remove", "updateMask")
+    }
+    mask = (
+        {"updateMask": "comma-separated field paths; required"}
+        if kind == "update"
+        else {}
+    )
+    return {**lines, **mask, **others}

@@ -192,9 +192,11 @@ def schema_normalize_body(resource: str, body: dict) -> tuple[dict, str | None]:
     return fixed, schema_normalize.summary(notes)
 
 
-def schema_check(resource: str, body: dict) -> None:
+def schema_check(resource: str, body: dict, customer_id: str) -> None:
     """The body against the generated schemas (schema_get_mutate); a ToolError with JSON-pointer problems."""
-    problems = schema_validate.check_body(schema_store.load(), resource, body)
+    problems = schema_validate.check_body(
+        schema_store.load(), resource, body, customer_id
+    )
     if problems:
         raise ToolError(
             json.dumps(
@@ -488,7 +490,7 @@ def mutate(
     resource = mutate_resource(cid, p)
     clean, normalized = schema_normalize_body(resource, clean_body(body))
     ops = operations_of(clean)
-    schema_check(resource, clean)
+    schema_check(resource, clean, cid)
     items = change_items(resource, ops)
 
     def noted(text: str) -> str:

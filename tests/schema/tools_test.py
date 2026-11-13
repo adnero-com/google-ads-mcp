@@ -167,6 +167,24 @@ class SchemaToolsTest(unittest.TestCase):
                 ).json_schema["x-rules"],
                 [{"rule": "x"}],
             )
+        summary = tools.get_mutate("campaign", "create")
+        self.assertIsNone(summary.json_schema)
+        lines = summary.fields_summary
+        self.assertEqual(
+            lines["create.appCampaignSetting"],
+            "object Campaign.AppCampaignSetting {appId, appStore, biddingStrategyGoalType}",
+        )
+        self.assertIn("immutable", lines["create.advertisingChannelType"])
+        self.assertIn(
+            "oneof campaignBiddingStrategy", lines["create.targetCpa"]
+        )
+        self.assertNotIn("create.id", lines)  # output only
+        update = tools.get_mutate("campaign", "update").fields_summary
+        self.assertIn("required", update["update.resourceName"])
+        self.assertIn("updateMask", update)
+        self.assertIsNotNone(
+            tools.get_mutate("campaign_budget", "create", full=True).json_schema
+        )
         errors = [
             ("app_top_combination_view", "create", "read-only"),
             ("campaign_label", "update", "supports create, remove"),
@@ -237,6 +255,30 @@ class ApiMutateSchemaTest(unittest.TestCase):
             answer["problems"][0]["path"],
             "/operations/0/create/campaign_budgett",
         )
+
+    def test_another_accounts_name_never_reaches_google(self):
+        body = {
+            "operations": [
+                {
+                    "update": {
+                        "resourceName": "customers/999/campaigns/5",
+                        "name": "y",
+                    },
+                    "updateMask": "name",
+                }
+            ]
+        }
+        with patch.object(api, "_call") as call:
+            with self.assertRaises(ToolError) as caught:
+                api.mutate(
+                    customer_id="1234567890",
+                    path="customers/1234567890/campaigns:mutate",
+                    body=body,
+                )
+        call.assert_not_called()
+        problem = json.loads(str(caught.exception))["problems"][0]
+        self.assertEqual(problem["code"], "FOREIGN_CUSTOMER")
+        self.assertEqual(problem["path"], "/operations/0/update/resourceName")
 
     def test_valid_body_is_previewed(self):
         body = {

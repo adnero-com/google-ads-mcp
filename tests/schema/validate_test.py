@@ -122,7 +122,7 @@ class CheckBodyTest(unittest.TestCase):
                 },
                 [
                     (
-                        "/operations/0/update/appCampaignSetting/appId",
+                        "/operations/0/updateMask",
                         "IMMUTABLE",
                     )
                 ],

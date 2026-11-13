@@ -16,50 +16,23 @@
 
 `check_body(data, collection, body)` -> problems, each with a JSON pointer into the body (RFC 6901), a code and
 a message that says what to fix. Codes: REQUIRED, UNKNOWN_FIELD, ONE_OF, IMMUTABLE, BAD_ENUM, BAD_TYPE,
-BAD_OPERATION, UNKNOWN_RESOURCE. An update may not carry an IMMUTABLE field (other than its resourceName).
+BAD_OPERATION, UNKNOWN_RESOURCE, BAD_MASK, FOREIGN_CUSTOMER. An update's mask may not name an immutable field
+(mask.py); with a customer id, every resource name must be that account's (scope.py).
 """
 
 import functools
-from dataclasses import dataclass
 from typing import Any, Mapping
 
-from jsonschema import Draft202012Validator, ValidationError, validators
+from jsonschema import Draft202012Validator, ValidationError
 
-from ads_mcp.schema import assemble
+from ads_mcp.schema import assemble, mask, scope
+from ads_mcp.schema.problems import Problem, pointer  # noqa: F401 (re-exported)
 
 MAX_PROBLEMS = 20
 KINDS = ("create", "update", "remove")
 
 
-@dataclass(frozen=True)
-class Problem:
-    path: str  # JSON pointer into the body, e.g. /operations/0/create/appCampaignSetting/appStore
-    code: str
-    message: str
-
-    def as_dict(self) -> dict:
-        return {"path": self.path, "code": self.code, "message": self.message}
-
-
-def pointer(parts) -> str:
-    return "".join(
-        "/" + str(p).replace("~", "~0").replace("/", "~1") for p in parts
-    )
-
-
-def _immutable(validator, value, instance, schema):
-    if value:
-        yield ValidationError(
-            "is immutable: it is set at creation and cannot change in an update"
-        )
-
-
-# An update's validator: also refuses fields marked x-immutable.
-UpdateValidator = validators.extend(
-    Draft202012Validator, {"x-immutable": _immutable}
-)
-
-
+# An update's immutable fields are judged by its mask (mask.py), not by their presence in the body.
 def _camel(name: str) -> str:
     head, *rest = name.split("_")
     return head + "".join(p[:1].upper() + p[1:] for p in rest)
@@ -160,17 +133,6 @@ def _resources_by(data: Mapping, key: str) -> dict:
 def _validator(gaql: str, kind: str, data_ref: "_Ref") -> Any:
     """One compiled validator per (resource, kind, loaded data): compiling is the slow part."""
     schema = assemble.operation_schema(data_ref.data, gaql, kind)
-    if kind == "update":
-        props = schema["properties"]["update"]["properties"]
-        if (
-            "resourceName" in props
-        ):  # names the target: never refused as immutable
-            props["resourceName"] = {
-                k: v
-                for k, v in props["resourceName"].items()
-                if k != "x-immutable"
-            }
-        return UpdateValidator(schema)
     return Draft202012Validator(schema)
 
 
@@ -193,7 +155,11 @@ def operation_schema(data: Mapping, gaql: str, kind: str) -> Mapping:
 
 
 def check_operation(
-    data: Mapping, gaql: str, operation: Any, prefix: tuple
+    data: Mapping,
+    gaql: str,
+    operation: Any,
+    prefix: tuple,
+    customer_id: str | None = None,
 ) -> list[Problem]:
     entry = data["index"]["resources"].get(gaql, {}).get("mutate")
     if not isinstance(operation, dict):
@@ -219,11 +185,35 @@ def check_operation(
         validator.iter_errors(operation),
         key=lambda e: list(map(str, e.absolute_path)),
     )
-    return [p for e in errors for p in _problems(e, prefix)]
+    schema = validator.schema
+    found = [p for e in errors for p in _problems(e, prefix)]
+    if kinds[0] == "update":
+        found += mask.check(operation, schema, prefix)
+    if customer_id:
+        found += scope.foreign(
+            operation,
+            schema,
+            schema.get("$defs", {}),
+            customer_id,
+            _customer_types(_Ref(data)),
+            prefix,
+        )
+    return found
 
 
-def check_body(data: Mapping, collection: str, body: Mapping) -> list[Problem]:
-    """Problems in a `<collection>:mutate` body ('campaigns', 'adGroupAds' ... or 'googleAds'), at most 20."""
+@functools.lru_cache(maxsize=4)
+def _customer_types(data_ref: "_Ref") -> frozenset:
+    return scope.customer_types(data_ref.data)
+
+
+def check_body(
+    data: Mapping,
+    collection: str,
+    body: Mapping,
+    customer_id: str | None = None,
+) -> list[Problem]:
+    """Problems in a `<collection>:mutate` body ('campaigns', 'adGroupAds' ... or 'googleAds'), at most 20.
+    With `customer_id`, every resource name in it must be that account's."""
     if collection == "googleAds":
         wrappers = data["index"]["googleAdsMutate"]
         by_op = _resources_by(data, "operation")
@@ -242,7 +232,11 @@ def check_body(data: Mapping, collection: str, body: Mapping) -> list[Problem]:
                 continue
             gaql = by_op.get(wrappers[keys[0]])
             found += check_operation(
-                data, gaql or "", op[keys[0]], ("mutateOperations", i, keys[0])
+                data,
+                gaql or "",
+                op[keys[0]],
+                ("mutateOperations", i, keys[0]),
+                customer_id,
             )
         return found[:MAX_PROBLEMS]
     gaql = _resources_by(data, "collection").get(collection)
@@ -260,7 +254,11 @@ def check_body(data: Mapping, collection: str, body: Mapping) -> list[Problem]:
         p
         for i, op in enumerate(ops or [])
         for p in check_operation(
-            data, gaql, op, (key, i) if key == "operations" else (key,)
+            data,
+            gaql,
+            op,
+            (key, i) if key == "operations" else (key,),
+            customer_id,
         )
     ]
     return found[:MAX_PROBLEMS]
