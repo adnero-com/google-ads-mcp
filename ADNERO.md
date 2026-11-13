@@ -229,9 +229,9 @@ lowerCamelCase paths (oneof branches not named are pruned), `brief` drops descri
   1 Google request when a named field is not cached yet.
 - `api_mutate` first puts its body in canonical REST form (`ads_mcp/schema/normalize.py`), guided by the operation's
   schema and accepting only what Google's own JSON parser accepts: snake_case keys whose camelCase name is a field
-  there are renamed, int64 integers become digit strings. The answer's `next_step` starts with one line saying what
-  was normalized; the checksum covers the normalized body (the snake_case and camelCase spellings of one change get
-  the same checksum).
+  there are renamed, int64 integers become digit strings. The answer's `notes` hold one line saying what was
+  normalized; the plan's digest covers the normalized body (`m.gate`), so a plan from a snake_case preview applies the
+  camelCase spelling of the same change. Google refusing an apply raises `GoogleRefused`, which releases the plan.
 - `api_mutate` then checks the body against these schemas before Google sees it (`ads_mcp/schema/validate.py`): problems come
   back as a ToolError holding `{"error": "SCHEMA_INVALID", "problems": [{path (JSON pointer), code, message}]}`,
   codes REQUIRED, UNKNOWN_FIELD (with the camelCase name when that is the fix), ONE_OF, IMMUTABLE (in an update),

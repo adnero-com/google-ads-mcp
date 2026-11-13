@@ -20,7 +20,6 @@ writes are ``<resource>:mutate`` bodies through the same propose and confirm as 
 The Google token is the request's own (never logged, nor is any body).
 """
 
-import hashlib
 import json
 import os
 import re
@@ -210,17 +209,6 @@ def schema_check(resource: str, body: dict, customer_id: str) -> None:
         )
 
 
-def checksum_of(customer_id: str, path: str, body: dict) -> str:
-    """sha256 hex of the canonical JSON of {customer_id, path, body} (sorted keys, no spaces, UTF-8)."""
-    canonical = json.dumps(
-        {"customer_id": customer_id, "path": path, "body": body},
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
 def change_items(resource: str, ops: list) -> list[pac.ChangeItem]:
     """One reviewable line per operation: its kind, its resource name, its mask and its fields (compact)."""
     items = []
@@ -272,7 +260,11 @@ def resource_names_of(data: Any) -> list[str]:
 def google_error(
     status: int, raw: bytes, request_id: str | None = None
 ) -> ToolError:
-    """Google's own message, status and first errorCode (e.g. AuthorizationError.CUSTOMER_NOT_ENABLED)."""
+    """Google's own message, status and first errorCode (e.g. AuthorizationError.CUSTOMER_NOT_ENABLED).
+
+    A GoogleRefused: Google answered, nothing changed, so an apply's plan is released for a retry. (Timeouts and
+    network failures stay plain ToolErrors: whether Google applied it is unknown, the plan stays spent.)
+    """
     try:
         error = json.loads(raw.decode("utf-8")).get("error") or {}
     except (ValueError, AttributeError, UnicodeDecodeError):
@@ -300,7 +292,7 @@ def google_error(
     text += message
     if request_id:
         text += f" (request id {request_id})"
-    return ToolError(text)
+    return m.GoogleRefused(text)
 
 
 # ---------------------------------------------------------------- the edge

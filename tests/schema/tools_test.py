@@ -159,7 +159,10 @@ class SchemaToolsTest(unittest.TestCase):
         )
         self.assertEqual(out.path, "customers/{customer_id}/adGroupAds:mutate")
         self.assertEqual(out.google_ads_key, "adGroupAdOperation")
-        self.assertEqual(out.json_schema["x-rules"], [])
+        # The App rules layer (rules/__init__.rules_for) fills x-rules, and `rules` in the summary.
+        ids = {r["id"] for r in out.json_schema["x-rules"]}
+        self.assertIn("app_ad.headlines", ids)
+        self.assertEqual(out.json_schema["x-rules"], out.rules)
         with patch("ads_mcp.rules.rules_for", return_value=[{"rule": "x"}]):
             self.assertEqual(
                 tools.get_mutate(
@@ -332,14 +335,20 @@ class ApiMutateSchemaTest(unittest.TestCase):
             )
         sent = call.call_args_list[0].args[2]
         self.assertEqual(sent["operations"], canonical["operations"])
-        self.assertTrue(
-            out.next_step.startswith("Normalized: 3 snake_case key(s)")
-        )
-        self.assertIn("1 int64 number(s)", out.next_step)
-        self.assertEqual(
-            out.checksum, same.checksum
-        )  # one change, one checksum
-        self.assertFalse(same.next_step.startswith("Normalized"))
+        (note,) = out.notes
+        self.assertTrue(note.startswith("Normalized: 3 snake_case key(s)"))
+        self.assertIn("1 int64 number(s)", note)
+        self.assertEqual(same.notes, [])
+        # One change, one digest: the snake_case preview's plan applies the camelCase body.
+        with patch.object(api, "_call", return_value=(200, {})):
+            done = api.mutate(
+                customer_id="1234567890",
+                path=path,
+                body=canonical,
+                validate_only=False,
+                plan_id=out.plan_id,
+            )
+        self.assertEqual(done.status, "APPLIED")
 
 
 if __name__ == "__main__":
