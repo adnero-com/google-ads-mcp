@@ -127,15 +127,18 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
   elicitation is asked through an `input_required` result (SEP-2322). Google validates the change first, and the
   retry applies it only with the person's acceptance and a plan of ours as `requestState`. Every other client gets
   the two-step flow.
-- **Plans (changed in v2; was an unkeyed sha256 "checksum").** `plan_id = p1.<expires_at>.<HMAC-SHA256>`, keyed by
-  the server secret, over the expiry and the digest of `{tool, customer_id, canonical args}` (`core/plan.py`,
-  `plans.py`). A model cannot mint one without the preview, any changed argument voids it, and it expires after
-  15 minutes. Every write goes through one gate (`adnero_mutate.gate`): the typed tools, `api_mutate`, and
+- **Plans (changed in v2; was an unkeyed sha256 "checksum").** `plan_id = p1.<expires_at>.<nonce>.<HMAC-SHA256>`,
+  keyed by the server secret, over the expiry, a random nonce and the digest of `{tool, customer_id, args,
+  sha256 of the serialized request actually sent}` (`core/plan.py`, `plans.py`). A model cannot mint one without
+  the preview, any changed argument or request voids it, and it expires after 15 minutes. **A plan applies once**:
+  the second apply of the same plan is refused before Google (creates can never be sent twice with one
+  approval); each preview is a new plan. The record of applied plans is in-process memory until expiry, so the
+  gateway build runs one worker (several workers would each accept a plan once). Every write goes through one gate (`adnero_mutate.gate`): the typed tools, `api_mutate`, and
   upstream's `propose_and_confirm` (labels, assets_create_asset, upload_video_asset). Compatibility: the
   answer carries the plan in both `plan_id` and `checksum`; our tools take `plan_id` and still accept `checksum`;
   upstream's tools keep their `checksum` argument, which now carries the plan. A stored old sha256 checksum is
-  refused (re-preview). Secret: `GOOGLE_ADS_MCP_PLAN_SECRET` (32+ characters); unset, it is derived from
-  `GOOGLE_ADS_MCP_SHARED_SECRET` (HMAC with a fixed label); neither, a per-process random key with a warning.
+  refused (re-preview). Secret: `GOOGLE_ADS_MCP_PLAN_SECRET` (32+ characters, the same on every worker); unset, it is derived
+  from `GOOGLE_ADS_MCP_SHARED_SECRET` (HMAC with a fixed label); neither: **writes are refused** (previews too).
 - App writes (namespace `app`):
   - `campaign_create`: app_check's checks (errors refuse before Google, warnings become `notes`), then ONE
     GoogleAdsService.Mutate with temp ids: budget (-1, not shared), campaign (-2, PAUSED, MULTI_CHANNEL + sub-type,
@@ -143,9 +146,13 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     dates), geo (+negative) and language criteria, ad group (-3, ENABLED: the campaign is the one switch), user list
     criteria, App ad (ENABLED, the sub-type's ad info). Apply asks for MUTABLE_RESOURCE and reads back
     primary_status and the ad's policy summary into `read_back`.
-    EU self-declaration: `contains_eu_political_advertising` defaults to false only when every positive location
-    is outside the EU; with an EU country targeted (`rules/app.py` `EU_COUNTRY_GEO_IDS`, the 27 member states) or
-    no location at all, the caller must state it (refused before Google, with the fix). app_check checks it too.
+    EU self-declaration (`rules/eu.py`, `eu_read.py`; also Search `campaigns_create`): with no statement from
+    the caller, `geo_target_constant.require_eu_political_advertising_declaration` is read for every targeted
+    location. One requires it, or no location is set: refused before Google, with the fix (ask the person). None
+    does: DOES_NOT_CONTAIN. The read fails: the field is left unset, so Google enforces it. app_check checks it too.
+  - app_check / creates read their facts as exact lookups (`WHERE id IN (...)`, each paged to the end; whether the
+    app is tracked is its own `LIMIT 1` query). A read that could not finish turns "not found" into a warning:
+    nothing is refused on a cut read.
   - `ad_group_create`: ad group PAUSED + its App ad (type from the campaign), checked first.
   - `ad_update`: add/remove texts and assets of an App ad in place (ad_operation, the AdService update inside
     the one Mutate), update mask only on changed fields, before/after in change_items; the plan binds the ad's

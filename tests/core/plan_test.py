@@ -10,7 +10,8 @@ D = plan.digest_of(
     "set_budget", "123", {"campaign_id": "9", "daily_budget_micros": 5}
 )
 NOW = 1_800_000_000
-GOOD = plan.issue(KEY, D, NOW)
+N = "0123456789abcdef"
+GOOD = plan.issue(KEY, D, NOW, N)
 
 
 @pytest.mark.parametrize(
@@ -68,6 +69,31 @@ GOOD = plan.issue(KEY, D, NOW)
         ("", D, NOW, KEY, Err("MISSING")),
         ("p1.x.abc", D, NOW, KEY, Err("MALFORMED")),
         ("p2.1.abc", D, NOW, KEY, Err("MALFORMED")),
+        (
+            "p1.²³." + N + "." + "a" * 64,
+            D,
+            NOW,
+            KEY,
+            Err("MALFORMED"),
+        ),  # non-ASCII digits
+        ("p1.123.é", D, NOW, KEY, Err("MALFORMED")),
+        ("p1.123." + N + "." + "g" * 64, D, NOW, KEY, Err("MALFORMED")),
+        ("p1.123." + N + "." + "a" * 63, D, NOW, KEY, Err("MALFORMED")),
+        (
+            "p1.123." + "a" * 64,
+            D,
+            NOW,
+            KEY,
+            Err("MALFORMED"),
+        ),  # the old nonce-less shape
+        (
+            GOOD.replace(N, "f" * 16),
+            D,
+            NOW,
+            KEY,
+            Err("MISMATCH"),
+        ),  # the MAC covers the nonce
+        (12345, D, NOW, KEY, Err("MISSING")),
     ],
 )
 def test_verify(plan_id, digest, now, key, expected):
@@ -88,4 +114,22 @@ def test_digest_canonical(a, b, same):
 
 
 def test_every_error_has_a_message():
-    assert set(plan.MESSAGES) == {"MISSING", "MALFORMED", "EXPIRED", "MISMATCH"}
+    assert set(plan.MESSAGES) == {
+        "MISSING",
+        "MALFORMED",
+        "EXPIRED",
+        "MISMATCH",
+        "USED",
+        "UNCONFIGURED",
+    }
+
+
+def test_each_preview_is_a_distinct_plan():
+    a = plan.issue(KEY, D, NOW, "a" * 16)
+    b = plan.issue(KEY, D, NOW, "b" * 16)
+    assert a != b
+    assert (
+        plan.verify(KEY, a, D, NOW)
+        == plan.verify(KEY, b, D, NOW)
+        == Ok(NOW + 900)
+    )

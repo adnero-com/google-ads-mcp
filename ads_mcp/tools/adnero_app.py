@@ -21,6 +21,7 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from ads_mcp import adnero_mutate as m
+from ads_mcp.eu_read import eu_requiring, rows_to_end
 from ads_mcp.rules import app as R
 from ads_mcp.rules.app_check import check as check_spec, needed_ids
 from ads_mcp.rules.app_spec import (
@@ -39,48 +40,73 @@ def _ids(values: Sequence[str | int] | None, what: str) -> tuple[str, ...]:
     return tuple(m.plain_id(v, what) for v in (values or ()))
 
 
-def _rows(cid: str, query: str, login) -> list[dict]:
-    from ads_mcp.tools.search import search_page
-
-    return search_page(cid, query, 10_000, None, login).rows
+def _app_tracked(cid: str, app_id: str, login) -> bool | None:
+    """Does any conversion action track this app? None when it cannot be told (the check then derives it)."""
+    if not app_id or any(c in app_id for c in "'\\\n"):
+        return None
+    try:
+        rows, _ = rows_to_end(
+            cid,
+            "SELECT conversion_action.id FROM conversion_action WHERE conversion_action.app_id = "
+            f"'{app_id}' AND conversion_action.status != 'REMOVED' LIMIT 1",
+            login,
+        )
+    except Exception:  # a warning only: never fail the check on it
+        return None
+    return bool(rows)
 
 
 def read_facts(
-    cid: str, spec: AppSpec, login, conversions: bool = True
+    cid: str,
+    spec: AppSpec,
+    login,
+    conversions: bool = True,
+    geo: bool = True,
 ) -> AccountFacts:
-    """1 search for conversion actions (unless conversions=False), +1 for the named assets, +1 for user lists."""
+    """Exact lookups, each paged to the end, so nothing is reported missing because a read was cut:
+    the named conversion actions (+1 to tell whether the app is tracked), the named assets, the named user
+    lists, and (geo=True, no EU statement) whether the targeted locations need the EU declaration.
+    """
+    complete = True
+
+    def lookup(query: str) -> list[dict]:
+        nonlocal complete
+        rows, done = rows_to_end(cid, query, login)
+        complete = complete and done
+        return rows
+
     actions = (
-        _rows(
-            cid,
+        lookup(
             "SELECT conversion_action.id, conversion_action.name, conversion_action.status, "
             "conversion_action.type, conversion_action.category, conversion_action.app_id "
-            "FROM conversion_action WHERE conversion_action.status != 'REMOVED'",
-            login,
+            f"FROM conversion_action WHERE conversion_action.id IN ({','.join(spec.conversion_action_ids)})"
         )
-        if conversions
+        if conversions and spec.conversion_action_ids
         else []
     )
+    tracked = _app_tracked(cid, spec.app_id, login) if conversions else None
     asset_ids = needed_ids(spec)
     assets = (
-        _rows(
-            cid,
+        lookup(
             "SELECT asset.id, asset.type, asset.image_asset.full_size.width_pixels, "
             "asset.image_asset.full_size.height_pixels, asset.image_asset.file_size, "
-            f"asset.image_asset.mime_type FROM asset WHERE asset.id IN ({','.join(asset_ids)})",
-            login,
+            f"asset.image_asset.mime_type FROM asset WHERE asset.id IN ({','.join(asset_ids)})"
         )
         if asset_ids
         else []
     )
     lists = (
-        _rows(
-            cid,
+        lookup(
             "SELECT user_list.id, user_list.name FROM user_list "
-            f"WHERE user_list.id IN ({','.join(spec.user_list_ids)})",
-            login,
+            f"WHERE user_list.id IN ({','.join(spec.user_list_ids)})"
         )
         if spec.user_list_ids
         else []
+    )
+    eu = (
+        eu_requiring(cid, spec.geo_target_ids, login)
+        if geo and spec.contains_eu_political_advertising is None
+        else ()
     )
     return AccountFacts(
         conversion_actions=tuple(
@@ -116,6 +142,9 @@ def read_facts(
             )
             for r in lists
         ),
+        app_tracked=tracked,
+        complete=complete,
+        eu_requiring_geo_ids=eu,
     )
 
 
@@ -214,7 +243,8 @@ def check(
     images, 20 videos and 20 HTML5 bundles; engagement names a user list. Returns problems with fixes; `ok`
     means nothing would make Google refuse. Takes the same arguments as app_campaign_create.
 
-    Costs 1 to 3 Google Ads operations (conversion actions, the named assets, the named user lists).
+    Costs 1 to 5 Google Ads operations (the named conversion actions, whether the app is tracked, the named
+    assets, the named user lists, the locations' EU requirement), more only for very long lists.
 
     Args:
         customer_id: The Google Ads account.
@@ -234,8 +264,8 @@ def check(
         youtube_video_asset_ids: YOUTUBE_VIDEO asset ids (assets_add_youtube).
         html5_asset_ids: MEDIA_BUNDLE asset ids (assets_upload_html5; install only).
         user_list_ids: User lists (engagement: required).
-        contains_eu_political_advertising: Required when an EU country is targeted or no location is set
-            (ask the person); otherwise false.
+        contains_eu_political_advertising: Required when a targeted location needs the EU declaration (Google
+            says which) or no location is set (ask the person); otherwise not needed.
         login_customer_id: The manager (MCC) account to call through.
     """
     m.use_login(login_customer_id)

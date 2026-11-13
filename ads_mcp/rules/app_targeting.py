@@ -1,36 +1,24 @@
 """App campaign targeting checks (pure): engagement user lists, locations."""
 
+from ads_mcp.core.result import Err, Result
 from ads_mcp.rules import app as R
+from ads_mcp.rules.eu import EuStatus, decide
 from ads_mcp.rules.app_spec import AccountFacts, AppSpec
 
 
-def eu_targeted(spec: AppSpec) -> bool:
-    """True when the campaign can reach the EU: an EU country targeted, or no location (everywhere)."""
-    return not spec.geo_target_ids or any(
-        g in R.EU_COUNTRY_GEO_IDS for g in spec.geo_target_ids
+def eu_status(
+    spec: AppSpec, facts: AccountFacts
+) -> Result[EuStatus, R.Problem]:
+    return decide(
+        spec.contains_eu_political_advertising,
+        spec.geo_target_ids,
+        facts.eu_requiring_geo_ids,
     )
 
 
-def eu_problems(spec: AppSpec) -> list[R.Problem]:
-    if spec.contains_eu_political_advertising is not None or not eu_targeted(
-        spec
-    ):
-        return []
-    return [
-        R.Problem(
-            code="EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED",
-            field="contains_eu_political_advertising",
-            message="The campaign targets the EU (an EU country, or no location: everywhere), so Google needs "
-            "the EU political advertising self-declaration.",
-            fix="Ask the person, then pass contains_eu_political_advertising=false (the ads are not EU political "
-            "advertising) or true.",
-        )
-    ]
-
-
-def eu_declaration(spec: AppSpec) -> bool:
-    """What is sent: the caller's statement, else false (allowed only when no EU location is targeted)."""
-    return bool(spec.contains_eu_political_advertising)
+def eu_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
+    status = eu_status(spec, facts)
+    return [status.error] if isinstance(status, Err) else []
 
 
 def audience_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
@@ -51,6 +39,7 @@ def audience_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
             code="USER_LIST_NOT_FOUND",
             field=f"user_list_ids[{i}]",
             message=f"User list {u} is not in this account.",
+            severity="ERROR" if facts.complete else "WARNING",
         )
         for i, u in enumerate(spec.user_list_ids)
         if u not in known

@@ -314,7 +314,7 @@ def propose_and_confirm(
             "Error: checksum from a previous validate_only=True call is "
             "required when validate_only=False."
         )
-    problem = plans.problem(checksum, digest)
+    problem = plans.consume(checksum, digest)
     if problem:
         raise ToolError(problem)
 

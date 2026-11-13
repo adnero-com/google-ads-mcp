@@ -22,7 +22,7 @@ from ads_mcp.core.result import Err
 from ads_mcp.rules import app as R
 from ads_mcp.rules.app_build import day_bounds
 from ads_mcp.rules.app_check import check as check_spec
-from ads_mcp.rules.app_targeting import eu_declaration
+from ads_mcp.rules.app_targeting import eu_status
 from ads_mcp.tools import adnero_app_build as B
 from ads_mcp.tools.adnero_app import app_mcp, read_facts, spec_of
 
@@ -70,8 +70,10 @@ def campaign_create(
     The campaign is the one on/off switch: it is created PAUSED, while the ad group inside it is ENABLED and the
     App ad is ENABLED (App ads cannot be paused). Nothing serves until the campaign is turned on with
     campaigns_set_status; after that, pause the campaign or the ad group, never the ad.
-    EU: when any targeted location is an EU country, or no location is set (everywhere), the person must state
-    contains_eu_political_advertising (refused otherwise); with only non-EU locations it defaults to false.
+    EU: Google says which locations need the EU political advertising self-declaration
+    (geo_target_constant.require_eu_political_advertising_declaration). When one does, or no location is set
+    (everywhere), the person must state contains_eu_political_advertising (refused otherwise, with the fix); when
+    none does, it is sent as "does not contain"; when that read fails, it is left unset and Google enforces it.
     Everything app_check checks is checked first; any error refuses before Google. Takes app_check's arguments.
     After the apply, the answer reads back primary_status and the ad's policy review.
 
@@ -105,8 +107,8 @@ def campaign_create(
         ad_group_name: Default: '<name> ad group'.
         start_date: YYYY-MM-DD in the account's time zone; default: when it is turned on.
         end_date: YYYY-MM-DD; default: no end.
-        contains_eu_political_advertising: Whether the ads are EU political advertising. Required when an EU
-            country is targeted or no location is set (ask the person); otherwise defaults to false.
+        contains_eu_political_advertising: Whether the ads are EU political advertising. Required when a
+            targeted location needs the declaration or no location is set (ask the person); else not needed.
         validate_only: True (default) previews; False applies (needs `plan_id`).
         plan_id: From the preview.
         login_customer_id: The manager (MCC) account to call through.
@@ -128,8 +130,10 @@ def campaign_create(
         headlines, descriptions, image_asset_ids, youtube_video_asset_ids,
         html5_asset_ids, user_list_ids, contains_eu_political_advertising,
     )  # fmt: skip
-    report = check_spec(spec, read_facts(cid, spec, login_customer_id))
+    facts = read_facts(cid, spec, login_customer_id)
+    report = check_spec(spec, facts)
     notes = refuse_errors(report.problems)
+    eu = eu_status(spec, facts).value  # an Err was refused just above
     group_name = (ad_group_name or f"{name.strip()} ad group").strip()
     campaign = B.rn(cid, "campaigns", -2)
     group = B.rn(cid, "adGroups", -3)
@@ -140,7 +144,7 @@ def campaign_create(
                 B.budget_op(client, cid, name.strip(), budget),
                 B.campaign_op(
                     client, cid, spec, name.strip(), start, end,
-                    eu_declaration(spec),
+                    eu,
                 ),
             ]  # fmt: skip
             + B.criterion_ops(
@@ -175,7 +179,7 @@ def campaign_create(
                 "Languages": list(spec.language_ids) or "all",
                 "Start": start,
                 "End": end,
-                "EU political advertising": eu_declaration(spec),
+                "EU political advertising": eu,
             },
             "App campaign (PAUSED)",
             name.strip(),
@@ -207,7 +211,7 @@ def campaign_create(
         "daily_budget_micros": budget,
         "start": start,
         "end": end,
-        "eu": eu_declaration(spec),
+        "eu": eu,
         "ad_group_name": group_name,
     }
     return m.mutate(

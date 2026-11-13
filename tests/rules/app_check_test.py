@@ -221,41 +221,74 @@ def test_needed_ids_dedupes_in_order():
 
 
 @pytest.mark.parametrize(
-    "geos, declared, needs_statement, sent",
+    "declared, geos, requiring, expected",
     [
-        (("2840",), None, False, False),  # US only: defaults to false
-        (("2124", "2826"), None, False, False),  # Canada, UK (not EU)
-        (("2276",), None, True, None),  # Germany
-        (("2840", "2250"), None, True, None),  # any EU country among them
-        ((), None, True, None),  # no location: everywhere, the EU included
-        (("2276",), False, False, False),
-        (("2276",), True, False, True),
-        (("2840",), True, False, True),
+        (
+            None,
+            ("2124",),
+            (),
+            "DOES_NOT_CONTAIN",
+        ),  # Google says no location needs it
+        (
+            None,
+            ("2276",),
+            ("2276",),
+            "REQUIRED",
+        ),  # Google says Germany needs it
+        (
+            None,
+            ("1007339",),
+            ("1007339",),
+            "REQUIRED",
+        ),  # a city: Google flags it too
+        (None, ("2840", "2250"), ("2250",), "REQUIRED"),
+        (None, (), (), "REQUIRED"),  # no location: everywhere, the EU included
+        (None, ("2124",), None, "UNSET"),  # the read failed: Google enforces it
+        (False, ("2276",), ("2276",), "DOES_NOT_CONTAIN"),
+        (True, ("2276",), ("2276",), "CONTAINS"),
+        (True, (), None, "CONTAINS"),
     ],
 )
-def test_eu_declaration(geos, declared, needs_statement, sent):
-    from ads_mcp.rules.app_targeting import eu_declaration, eu_problems
+def test_eu_decide(declared, geos, requiring, expected):
+    from ads_mcp.core.result import Err
+    from ads_mcp.rules.eu import decide
 
-    spec = AppSpec(
-        **{
-            **BASE,
-            "geo_target_ids": geos,
-            "contains_eu_political_advertising": declared,
-        }
-    )
-    problems = eu_problems(spec)
-    assert bool(problems) is needs_statement
-    if needs_statement:
-        assert problems[0].fix and "ask the person" in problems[0].fix.lower()
+    got = decide(declared, geos, requiring)
+    if expected == "REQUIRED":
+        assert isinstance(got, Err)
+        assert got.error.code == "EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED"
+        assert "ask the person" in got.error.fix.lower()
     else:
-        assert eu_declaration(spec) is sent
+        assert got.value == expected
 
 
-def test_eu_set_is_the_27_member_states():
-    from ads_mcp.rules.app import EU_COUNTRY_GEO_IDS
+@pytest.mark.parametrize(
+    "requiring, expected",
+    [
+        ((), []),
+        (("2840",), ["EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED"]),
+        (None, []),
+    ],
+)
+def test_check_uses_googles_eu_answer(requiring, expected):
+    facts = FACTS.model_copy(update={"eu_requiring_geo_ids": requiring})
+    report = check(AppSpec(**BASE), facts)
+    assert [p.code for p in report.problems] == expected
 
-    assert len(EU_COUNTRY_GEO_IDS) == 27
-    assert {"2276", "2250", "2380", "2724"} <= EU_COUNTRY_GEO_IDS
-    assert (
-        not {"2840", "2826", "2756", "2578"} & EU_COUNTRY_GEO_IDS
-    )  # US, UK, Switzerland, Norway
+
+def test_missing_ids_on_an_incomplete_read_are_warnings():
+    facts = FACTS.model_copy(update={"complete": False})
+    report = check(AppSpec(**{**BASE, "image_asset_ids": ("99",)}), facts)
+    assert [(p.code, p.severity) for p in report.problems] == [
+        ("ASSET_NOT_FOUND", "WARNING")
+    ]
+    assert report.ok
+
+
+@pytest.mark.parametrize(
+    "tracked, warned", [(True, False), (False, True), (None, False)]
+)
+def test_app_tracked_fact(tracked, warned):
+    facts = FACTS.model_copy(update={"app_tracked": tracked})
+    report = check(AppSpec(**BASE), facts)
+    assert ("APP_NOT_TRACKED" in [p.code for p in report.problems]) is warned

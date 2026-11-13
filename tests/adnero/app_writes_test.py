@@ -28,13 +28,21 @@ def page(rows):
 class FakeAccount:
     """GAQL answers by the FROM resource; the campaign row is configurable."""
 
+    EU = {
+        "2276",
+        "2380",
+        "2250",
+    }  # what Google flags as needing the EU declaration, in this fake
+
     def __init__(
         self,
         sub_type="APP_CAMPAIGN",
         goal="OPTIMIZE_INSTALLS_TARGET_INSTALL_COST",
         ad=None,
         criteria=(),
+        geo_fails=False,
     ):
+        self.geo_fails = geo_fails
         self.sub_type, self.goal, self.ad, self.criteria = (
             sub_type,
             goal,
@@ -78,6 +86,20 @@ class FakeAccount:
                         "asset.image_asset.mime_type": "IMAGE_PNG",
                     },
                     {"asset.id": 20, "asset.type": "YOUTUBE_VIDEO"},
+                ]
+            )
+        if "FROM geo_target_constant" in query:
+            if self.geo_fails:
+                raise ToolError("Google Ads refused the request")
+            ids = query.split("IN (")[1].split(")")[0].split(",")
+            return page(
+                [
+                    {
+                        "geo_target_constant.id": int(i),
+                        "geo_target_constant.require_eu_political_advertising_declaration": i
+                        in self.EU,
+                    }
+                    for i in ids
                 ]
             )
         if "FROM user_list" in query:
@@ -590,6 +612,20 @@ def test_eu_declaration_sent(google, geos, declared, sent):
     )
 
 
+def test_eu_read_failure_leaves_the_field_for_google(google):
+    _, p = account(geo_fails=True)
+    with p:
+        create.campaign_create(
+            **{
+                **BASE,
+                "geo_target_ids": ["2276"],
+                "excluded_geo_target_ids": [],
+            }
+        )
+    c = google[-1].ops[1].campaign_operation.create
+    assert c.contains_eu_political_advertising.name == "UNSPECIFIED"
+
+
 @pytest.mark.parametrize("geos", [["2276"], ["2124", "2380"], []])
 def test_eu_targeting_needs_a_statement(google, geos):
     _, p = account()
@@ -603,3 +639,41 @@ def test_eu_targeting_needs_a_statement(google, geos):
             **{**BASE, "geo_target_ids": geos, "excluded_geo_target_ids": []}
         )
     assert google == []
+
+
+def test_a_plan_creates_once(google):
+    _, p = account()
+    with p:
+        proposal = create.campaign_create(**BASE)
+        create.campaign_create(
+            **BASE, validate_only=False, plan_id=proposal.plan_id
+        )
+        with pytest.raises(ToolError, match="already applied"):
+            create.campaign_create(
+                **BASE, validate_only=False, plan_id=proposal.plan_id
+            )
+    assert [r.validate_only for r in google] == [
+        True,
+        False,
+    ], "one apply reached Google"
+
+
+def test_the_plan_signs_the_request_sent(google, monkeypatch):
+    """A plan from one request does not apply a different request built from the same arguments."""
+    from ads_mcp.tools import adnero_app_build as B
+
+    _, p = account()
+    with p:
+        proposal = create.campaign_create(**BASE)
+        real = B.budget_op
+        monkeypatch.setattr(
+            B,
+            "budget_op",
+            lambda client, cid, name, micros: real(
+                client, cid, name, micros * 10
+            ),
+        )
+        with pytest.raises(ToolError, match="does not match"):
+            create.campaign_create(
+                **BASE, validate_only=False, plan_id=proposal.plan_id
+            )

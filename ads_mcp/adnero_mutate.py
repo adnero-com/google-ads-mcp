@@ -23,6 +23,7 @@ and the same arguments applies it.
 
 from collections.abc import Callable, Sequence
 import contextvars
+import hashlib
 import re
 from typing import Any
 
@@ -281,6 +282,13 @@ _NEEDS_APPROVAL = (
 )
 
 
+def _consume(plan_id: str, digest: str) -> None:
+    """A plan applies once (plans.py): a second apply of the same plan is refused before Google."""
+    problem = plans.consume(plan_id, digest)
+    if problem:
+        raise ToolError(problem)
+
+
 def gate(
     *,
     tool: str,
@@ -298,7 +306,8 @@ def gate(
 
     - validate_only=True: `validate` (Google's validate_only), then PROPOSED with a signed plan_id.
     - validate_only=False + plan_id: applied when the server issued that plan for exactly this digest within
-      15 minutes (plans.py, core/plan.py), else refused before Google.
+      15 minutes and it was not applied before (plans.py, core/plan.py), else refused before Google. A plan
+      applies once: creates can never be sent twice with one approval.
     - validate_only=False without a plan, on a client that declared form elicitation: validated, the person is
       asked in the client's form (the request state is a plan), and the retry with their acceptance applies it.
     """
@@ -315,11 +324,10 @@ def gate(
             next_step=_PROPOSED_NEXT,
         )
     if plan_id:
-        problem = plans.problem(plan_id, digest)
-        if problem:
-            raise ToolError(problem)
+        _consume(plan_id, digest)
         return commit()
     if _accepted(ctx, digest):
+        _consume(ctx.request_state, digest)
         return commit()
     if client_can_elicit(ctx):
         validate()
@@ -357,7 +365,15 @@ def mutate(
     request = ga_client.get_type("MutateGoogleAdsRequest", version=API_VERSION)
     request.customer_id = customer_id
     request.mutate_operations.extend(operations(ga_client))
-    digest = plan_core.digest_of(tool, customer_id, payload)
+    # The plan signs the request Google receives (deterministic bytes, validate_only off), plus the tool's
+    # normalised arguments (what the person reviewed).
+    request.validate_only = False
+    sent = type(request).pb(request).SerializeToString(deterministic=True)
+    digest = plan_core.digest_of(
+        tool,
+        customer_id,
+        {"args": payload, "request_sha256": hashlib.sha256(sent).hexdigest()},
+    )
 
     def _validate() -> None:
         request.validate_only = True

@@ -84,17 +84,6 @@ IMAGE_RATIOS: tuple[ImageRatio, ...] = (
 RATIO_TOLERANCE = 0.005
 IMAGE_MAX_BYTES = 5 * 1024 * 1024
 
-# Geo target constant ids of the 27 EU member states (country ids are 2000 + ISO 3166 numeric). A campaign that
-# targets any of them (or no location at all: everywhere) must state contains_eu_political_advertising itself;
-# v26 makes the declaration optional only when every positive location is outside the EU. A region or city inside
-# the EU is not in this set: Google then refuses with MISSING_EU_POLITICAL_ADVERTISING_SELF_DECLARATION.
-EU_COUNTRY_GEO_IDS: frozenset[str] = frozenset(
-    {
-        "2040", "2056", "2100", "2191", "2196", "2203", "2208", "2233", "2246",
-        "2250", "2276", "2300", "2348", "2372", "2380", "2428", "2440", "2442",
-        "2470", "2528", "2616", "2620", "2642", "2703", "2705", "2724", "2752",
-    }
-)  # fmt: skip
 IMAGE_MIME_TYPES = ("IMAGE_JPEG", "IMAGE_PNG")
 MAX_IMAGES = 20
 MAX_VIDEOS = 20

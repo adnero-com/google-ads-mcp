@@ -26,6 +26,7 @@ def conversion_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
             code="CONVERSION_ACTION_NOT_FOUND",
             field=f"conversion_action_ids[{i}]",
             message=f"Conversion action {cid} is not in this account.",
+            severity="ERROR" if facts.complete else "WARNING",
         )
         for i, cid in enumerate(spec.conversion_action_ids)
         if cid not in by_id
@@ -77,7 +78,11 @@ def conversion_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
     ]
     linked = (
         []
-        if any(c.app_id == spec.app_id for c in facts.conversion_actions)
+        if (
+            facts.app_tracked
+            if facts.app_tracked is not None
+            else any(c.app_id == spec.app_id for c in facts.conversion_actions)
+        )
         else [
             R.Problem(
                 code="APP_NOT_TRACKED",
@@ -110,6 +115,7 @@ def asset_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
             code="ASSET_NOT_FOUND",
             field=f,
             message=f"Asset {aid} is not in this account.",
+            severity="ERROR" if facts.complete else "WARNING",
         )
         for f, aid, _ in listed
         if aid not in by_id
@@ -162,7 +168,7 @@ def check(spec: AppSpec, facts: AccountFacts) -> CheckReport:
         + asset_problems(spec, facts)
         + audience_problems(spec, facts)
         + geo_problems(spec)
-        + eu_problems(spec)
+        + eu_problems(spec, facts)
     )
     return CheckReport(
         ok=not any(p.severity == "ERROR" for p in problems),

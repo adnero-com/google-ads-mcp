@@ -65,6 +65,19 @@ def set_bidding(
         )
 
 
+def set_eu(client, campaign, eu: str) -> None:
+    """CONTAINS / DOES_NOT_CONTAIN, or UNSET: leave the field out so Google enforces the rule (rules/eu.py)."""
+    statuses = client.enums.EuPoliticalAdvertisingStatusEnum
+    if eu == "CONTAINS":
+        campaign.contains_eu_political_advertising = (
+            statuses.CONTAINS_EU_POLITICAL_ADVERTISING
+        )
+    elif eu == "DOES_NOT_CONTAIN":
+        campaign.contains_eu_political_advertising = (
+            statuses.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
+        )
+
+
 def campaign_op(
     client,
     cid: str,
@@ -72,7 +85,7 @@ def campaign_op(
     name: str,
     start: str | None,
     end: str | None,
-    eu_political: bool,
+    eu: str,
 ) -> Any:
     e = client.enums
     op = _op(client)
@@ -102,11 +115,7 @@ def campaign_op(
         c.optimization_goal_setting.optimization_goal_types.append(
             e.OptimizationGoalTypeEnum.APP_PRE_REGISTRATION
         )
-    c.contains_eu_political_advertising = (
-        e.EuPoliticalAdvertisingStatusEnum.CONTAINS_EU_POLITICAL_ADVERTISING
-        if eu_political
-        else e.EuPoliticalAdvertisingStatusEnum.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
-    )
+    set_eu(client, c, eu)
     if start:
         c.start_date_time = start
     if end:

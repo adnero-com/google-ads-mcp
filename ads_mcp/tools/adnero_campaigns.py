@@ -28,7 +28,11 @@ from mcp.types import ToolAnnotations
 from ads_mcp.api_version import API_VERSION
 from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
+from ads_mcp import eu_read
+from ads_mcp.core.result import Err
 from ads_mcp.rules import app_build
+from ads_mcp.rules import eu as eu_rule
+from ads_mcp.tools.adnero_app_build import set_eu
 
 campaigns_mcp = FastMCP("campaigns")
 
@@ -396,10 +400,16 @@ def create(
     plan_id: str | None = None,
     login_customer_id: str | int | None = None,
     ctx: Context | None = None,
+    contains_eu_political_advertising: bool | None = None,
 ) -> m.MutationResult:
     """Creates a Search campaign with its own daily budget, always PAUSED.
 
-    Costs 1 Google Ads operation per item on each call (the preview counts too).
+    EU: when a targeted location needs the EU political advertising self-declaration (Google says which) or no
+    location is set, the person must state contains_eu_political_advertising; otherwise it is "does not
+    contain"; if Google's answer cannot be read, the field is left out and Google enforces it.
+
+    Costs 1 Google Ads operation per item on each call (the preview counts too), +1 to read the locations' EU
+    requirement when contains_eu_political_advertising is not given.
 
     Approval: call with validate_only=true (default): Google validates it and nothing changes (status PROPOSED, a plan_id). Show change_items to the person; once they approve, call again with the same arguments,
     validate_only=false and the plan_id. A client with form elicitation may call once with validate_only=false:
@@ -434,6 +444,19 @@ def create(
         raise ToolError("Error: target_cpa_micros needs MAXIMIZE_CONVERSIONS.")
     geos = [int(g) for g in (location_ids or [])]
     langs = [int(lg) for lg in (language_ids or [])]
+    eu_answer = eu_rule.decide(
+        contains_eu_political_advertising,
+        [str(g) for g in geos],
+        (
+            eu_read.eu_requiring(cid, [str(g) for g in geos], login_customer_id)
+            if contains_eu_political_advertising is None
+            else ()
+        ),
+    )
+    if isinstance(eu_answer, Err):
+        p = eu_answer.error
+        raise ToolError(f"Error: {p.code}: {p.message} Fix: {p.fix}")
+    eu = eu_answer.value
     budget_rn = f"customers/{cid}/campaignBudgets/-1"
     campaign_rn = f"customers/{cid}/campaigns/-2"
 
@@ -457,9 +480,7 @@ def create(
         c.network_settings.target_google_search = True
         c.network_settings.target_search_network = bool(search_partners)
         c.network_settings.target_content_network = False
-        c.contains_eu_political_advertising = (
-            e.EuPoliticalAdvertisingStatusEnum.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
-        )
+        set_eu(client, c, eu)
         if bid == "MANUAL_CPC":
             client.copy_from(
                 c.manual_cpc, client.get_type("ManualCpc", version=API_VERSION)
@@ -504,6 +525,7 @@ def create(
         "search_partners": bool(search_partners),
         "start_date_time": start_date_time,
         "end_date_time": end_date_time,
+        "eu": eu,
     }
     items = pac.build_change_items(
         operation="CREATE",
@@ -519,6 +541,7 @@ def create(
             "Search partners": bool(search_partners),
             "Start": start_date_time,
             "End": end_date_time,
+            "EU political advertising": eu,
         },
     )
     return m.mutate(

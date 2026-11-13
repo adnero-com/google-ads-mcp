@@ -198,6 +198,51 @@ class BidsTest(Harness):
 
 
 class CreateTest(Harness):
+    def setUp(self):
+        super().setUp()
+        # Google's answer to "which of these locations need the EU declaration": none, unless a test says so.
+        self.eu = patch("ads_mcp.eu_read.eu_requiring", return_value=())
+        self.eu_read = self.eu.start()
+        self.addCleanup(self.eu.stop)
+
+    def test_eu_rule(self):
+        for requiring, declared, sent in (
+            (("2276",), True, "CONTAINS_EU_POLITICAL_ADVERTISING"),
+            (("2276",), False, "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"),
+            (
+                None,
+                None,
+                "UNSPECIFIED",
+            ),  # the read failed: left for Google to enforce
+        ):
+            self.eu_read.return_value = requiring
+            camp.create(
+                customer_id="1",
+                name="X",
+                daily_budget_micros=1,
+                location_ids=[2276],
+                contains_eu_political_advertising=declared,
+            )
+            sent_now = self.requests[-1][1][1].campaign_operation.create
+            self.assertEqual(
+                sent_now.contains_eu_political_advertising.name, sent
+            )
+        self.eu_read.return_value = ("2276",)
+        before = len(self.requests)
+        for geos in ([2276], []):
+            with self.assertRaises(ToolError) as e:
+                camp.create(
+                    customer_id="1",
+                    name="X",
+                    daily_budget_micros=1,
+                    location_ids=geos,
+                )
+            self.assertIn(
+                "EU_POLITICAL_ADVERTISING_DECLARATION_REQUIRED",
+                str(e.exception),
+            )
+        self.assertEqual(len(self.requests), before, "refused before Google")
+
     def test_campaign_is_created_paused_with_its_budget(self):
         _, ops = self.propose_then_confirm(
             camp.create,
