@@ -53,6 +53,10 @@ class SearchResult(BaseModel):
         description="END: no more rows on this page. MAX_ROWS / BYTE_CAP: the answer was cut; page on."
     )
     query: str = Field(description="The GAQL that ran.")
+    note: str | None = Field(
+        default=None,
+        description="Set when more rows exist that this query cannot page to (no ORDER BY).",
+    )
 
 
 def _fail(message: str) -> ToolError:
@@ -105,6 +109,8 @@ def search(
         )
     )
     rows_cap = _unwrap(gaql.check_max_rows(max_rows))
+    text = gaql.stable_order(text)
+    ordered = gaql.is_ordered(text)
     fp = gaql.fingerprint(customer_id, text)
     cursor = (
         _unwrap(gaql.decode_cursor(page_token, fp))
@@ -135,7 +141,7 @@ def search(
             byte_cap=gaql.BYTE_CAP,
         )
         following = gaql.next_cursor(
-            cursor, page, str(first.next_page_token or "")
+            cursor, page, str(first.next_page_token or ""), ordered
         )
     except GoogleAdsException as ex:
         raise ToolError(utils.format_google_ads_error(ex)) from ex
@@ -146,6 +152,12 @@ def search(
         next_page_token=gaql.encode_cursor(following) if following else None,
         stopped_by=page.stopped_by,
         query=text,
+        note=(
+            "More rows exist, but a query without ORDER BY cannot be paged inside a result page: add an ORDER BY "
+            "(e.g. on the resource's id) or raise max_rows."
+            if page.stopped_by != "END" and not ordered
+            else None
+        ),
     )
 
 

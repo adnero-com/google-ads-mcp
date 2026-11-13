@@ -8,6 +8,7 @@ token to its customer and query; a token from another query is refused.
 
 import base64
 import binascii
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 import hashlib
@@ -90,6 +91,37 @@ def choose_query(
     )
 
 
+_ORDER_BY = re.compile(r"\bORDER\s+BY\b", re.I)
+_FROM = re.compile(r"\bFROM\s+([a-z_]+)", re.I)
+_SELECT = re.compile(r"^\s*SELECT\s+(.*?)\s+FROM\b", re.I | re.S)
+_TAIL = re.compile(r"\s+(LIMIT\b|PARAMETERS\b)", re.I)
+
+
+def is_ordered(query: str) -> bool:
+    return bool(_ORDER_BY.search(query))
+
+
+def stable_order(query: str) -> str:
+    """Adds ORDER BY <resource>.id when the query selects it and orders by nothing.
+
+    A cursor that resumes inside a Google page re-reads that page; only an ordered query returns the same rows
+    in the same order, so only ordered queries get a mid-page cursor (see next_cursor).
+    """
+    if is_ordered(query):
+        return query
+    resource = _FROM.search(query)
+    selected = _SELECT.search(query)
+    if not resource or not selected:
+        return query
+    key = f"{resource.group(1)}.id"
+    fields = {f.strip() for f in selected.group(1).split(",")}
+    if key not in fields:
+        return query
+    tail = _TAIL.search(query)
+    cut = tail.start() if tail else len(query)
+    return f"{query[:cut]} ORDER BY {key}{query[cut:]}"
+
+
 def check_max_rows(max_rows: int | None) -> Result[int, str]:
     value = DEFAULT_MAX_ROWS if max_rows is None else max_rows
     if isinstance(value, bool) or not 1 <= value <= MAX_ROWS_LIMIT:
@@ -165,10 +197,13 @@ def take_rows(
 
 
 def next_cursor(
-    current: Cursor, page: Page, google_next_token: str
+    current: Cursor, page: Page, google_next_token: str, ordered: bool = True
 ) -> Cursor | None:
-    """Where the next answer starts: the same Google page further on, Google's next page, or nothing."""
+    """Where the next answer starts: the same Google page further on (ordered queries only), Google's next
+    page, or nothing."""
     if page.stopped_by != "END":
+        if not ordered:
+            return None
         return Cursor(
             current.fingerprint,
             current.google_token,

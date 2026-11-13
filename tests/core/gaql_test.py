@@ -117,3 +117,49 @@ def test_next_cursor(stop, consumed, google_next, expected):
         gaql.next_cursor(gaql.Cursor("f", "G1", 5), page, google_next)
         == expected
     )
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT campaign.id, campaign.name FROM campaign",
+            "SELECT campaign.id, campaign.name FROM campaign ORDER BY campaign.id",
+        ),
+        (
+            "SELECT campaign.id FROM campaign WHERE campaign.status = 'ENABLED' LIMIT 5",
+            "SELECT campaign.id FROM campaign WHERE campaign.status = 'ENABLED' ORDER BY campaign.id LIMIT 5",
+        ),
+        (
+            "SELECT ad_group.id FROM ad_group PARAMETERS omit_unselected_resource_names=true",
+            "SELECT ad_group.id FROM ad_group ORDER BY ad_group.id PARAMETERS omit_unselected_resource_names=true",
+        ),
+        (
+            "SELECT campaign.id FROM campaign ORDER BY campaign.name",
+            "SELECT campaign.id FROM campaign ORDER BY campaign.name",
+        ),
+        (
+            "SELECT campaign.name FROM campaign",
+            "SELECT campaign.name FROM campaign",
+        ),  # no id selected: unchanged
+        (
+            "SELECT ad_group.id FROM campaign",
+            "SELECT ad_group.id FROM campaign",
+        ),
+    ],
+)
+def test_stable_order(query, expected):
+    assert gaql.stable_order(query) == expected
+    assert gaql.is_ordered(gaql.stable_order(query)) is ("ORDER BY" in expected)
+
+
+def test_unordered_cut_has_no_cursor():
+    page = gaql.Page((1, 2), 2, "MAX_ROWS")
+    assert (
+        gaql.next_cursor(gaql.Cursor("f", "", 0), page, "G2", ordered=False)
+        is None
+    )
+    end = gaql.Page((1,), 1, "END")
+    assert gaql.next_cursor(
+        gaql.Cursor("f", "", 0), end, "G2", ordered=False
+    ) == gaql.Cursor("f", "G2", 0)

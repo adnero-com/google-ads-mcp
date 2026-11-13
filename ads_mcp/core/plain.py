@@ -4,13 +4,16 @@ Rules, everywhere and at every depth:
 - enums are returned as their NAME ('LIMITED'), never their number;
 - keys are the API's field names: proto-plus escapes Python keywords with a trailing
   underscore ('type_'), which is removed ('type');
-- int64 stays a string (the JSON mapping), so ids and micros never lose precision.
+- int64 values are JSON numbers at every depth (ids, micros, counts), like the top-level fields of a row:
+  Google Ads ids and micros stay below 2**53, so no client loses precision;
+- only fields that are set appear: no made-up defaults (an unset enum is absent, not "UNSPECIFIED").
 """
 
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
+from google.protobuf.descriptor import FieldDescriptor
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.message import Message as PbMessage
 import proto
@@ -30,14 +33,46 @@ def rename_keys(value: Any) -> Any:
     return value
 
 
+_INT64 = frozenset(
+    {
+        FieldDescriptor.TYPE_INT64,
+        FieldDescriptor.TYPE_UINT64,
+        FieldDescriptor.TYPE_SINT64,
+        FieldDescriptor.TYPE_FIXED64,
+        FieldDescriptor.TYPE_SFIXED64,
+    }
+)
+
+
+def _unquote(value: Any, field: FieldDescriptor) -> Any:
+    if isinstance(value, list):
+        return [_unquote(v, field) for v in value]
+    if field.type in _INT64 and isinstance(value, str):
+        return int(value)
+    if field.type == FieldDescriptor.TYPE_MESSAGE and isinstance(value, dict):
+        return _unquote_message(value, field.message_type)
+    return value
+
+
+def _unquote_message(data: dict, descriptor: Any) -> dict:
+    """The JSON mapping quotes int64; turn those back into numbers, walking the descriptor."""
+    fields = descriptor.fields_by_name
+    return {
+        k: (_unquote(v, fields[k]) if k in fields else v)
+        for k, v in data.items()
+    }
+
+
 def _message_dict(pb: PbMessage) -> Any:
+    data = MessageToDict(
+        pb,
+        preserving_proto_field_name=True,
+        use_integers_for_enums=False,
+    )
     return rename_keys(
-        MessageToDict(
-            pb,
-            preserving_proto_field_name=True,
-            use_integers_for_enums=False,
-            always_print_fields_with_no_presence=True,
-        )
+        _unquote_message(data, pb.DESCRIPTOR)
+        if isinstance(data, dict)
+        else data
     )
 
 

@@ -480,6 +480,26 @@ class MutateTest(StubGoogle):
 
 
 class ApiVersionTest(unittest.TestCase):
+    def test_a_different_version_env_stops_the_server(self):
+        from ads_mcp import server
+
+        for ok in ({}, {"GOOGLE_ADS_API_VERSION": "v26"}):
+            with patch.dict(os.environ, ok, clear=True):
+                adnero_auth.check_api_version_env()
+        with patch.dict(
+            os.environ, {"GOOGLE_ADS_API_VERSION": "v27"}, clear=True
+        ):
+            with self.assertRaises(RuntimeError):
+                adnero_auth.check_api_version_env()
+            with (
+                patch.object(adnero_auth, "serve") as serve,
+                patch.object(server.mcp, "run") as run,
+            ):
+                with self.assertRaises(RuntimeError):
+                    server.run_server()
+                serve.assert_not_called()
+                run.assert_not_called()
+
     def test_one_version_env_cannot_move_it(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(adnero_auth.api_version(), "v26")

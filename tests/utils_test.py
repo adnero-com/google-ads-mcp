@@ -47,8 +47,8 @@ class TestUtils(unittest.TestCase):
         metrics = Metrics(clicks=10, impressions=100)
         formatted = utils.format_output_value(metrics)
         self.assertIsInstance(formatted, dict)
-        self.assertEqual(formatted.get("clicks"), "10")
-        self.assertEqual(formatted.get("impressions"), "100")
+        self.assertEqual(formatted.get("clicks"), 10)
+        self.assertEqual(formatted.get("impressions"), 100)
 
     def test_format_output_value_repeated_primitive(self):
         """Tests that repeated primitive values are formatted."""
@@ -64,8 +64,8 @@ class TestUtils(unittest.TestCase):
         formatted = utils.format_output_value([metrics1, metrics2])
         self.assertIsInstance(formatted, list)
         self.assertEqual(len(formatted), 2)
-        self.assertEqual(formatted[0].get("clicks"), "10")
-        self.assertEqual(formatted[1].get("clicks"), "20")
+        self.assertEqual(formatted[0].get("clicks"), 10)
+        self.assertEqual(formatted[1].get("clicks"), 20)
 
     def test_format_output_value_bare_protobuf(self):
         """Tests that bare protobuf messages are formatted correctly."""

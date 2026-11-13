@@ -80,7 +80,7 @@ def fake(monkeypatch):
     [
         (
             {"query": "SELECT campaign.id FROM campaign"},
-            "SELECT campaign.id FROM campaign",
+            "SELECT campaign.id FROM campaign ORDER BY campaign.id",
         ),
         (
             {
@@ -223,3 +223,17 @@ class TestSearchDescription(unittest.TestCase):
                         description,
                     )
                     mock_log_error.assert_called_once()
+
+
+def test_unordered_queries_get_no_mid_page_token(fake):
+    fake({"": ([1, 2, 3], "G2")})
+    out = search.search(
+        customer_id="1", query="SELECT campaign.name FROM campaign", max_rows=2
+    )
+    assert out.stopped_by == "MAX_ROWS"
+    assert out.next_page_token is None and "ORDER BY" in out.note
+    # a whole Google page read: Google's own token continues it
+    whole = search.search(
+        customer_id="1", query="SELECT campaign.name FROM campaign"
+    )
+    assert whole.next_page_token and whole.note is None

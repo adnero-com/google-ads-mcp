@@ -119,6 +119,20 @@ def api_version() -> str:
     return API_VERSION
 
 
+def check_api_version_env() -> None:
+    """Startup: a GOOGLE_ADS_API_VERSION naming another version than this build speaks stops the server.
+
+    The code, the client lib pin and the checked-in schemas move together, so an env override can only be a
+    mistake (a deployment still expecting the old switch).
+    """
+    value = os.environ.get(API_VERSION_ENV, "").strip()
+    if value and value != API_VERSION:
+        raise RuntimeError(
+            f"{API_VERSION_ENV}={value[:20]!r} but this build speaks {API_VERSION} only: unset it, or deploy a "
+            "build for that version."
+        )
+
+
 def _header(name: str) -> str:
     return get_http_headers(include={name}).get(name, "").strip()
 

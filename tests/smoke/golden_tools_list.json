@@ -943,6 +943,18 @@
             "default": null,
             "description": "More rows exist: call again with the same query, customer_id and this page_token."
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Set when more rows exist that this query cannot page to (no ORDER BY)."
+          },
           "query": {
             "description": "The GAQL that ran.",
             "type": "string"

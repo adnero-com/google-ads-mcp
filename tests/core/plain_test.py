@@ -56,7 +56,7 @@ def test_rename_keys_nested():
         ("abc", "abc"),
         ([1, 2], [1, 2]),
         (FieldMask(paths=["a", "b"]), "a,b"),
-        (Metrics(clicks=10), {"clicks": "10"}),
+        (Metrics(clicks=10), {"clicks": 10}),
     ],
 )
 def test_scalars_and_messages(value, expected):
@@ -80,3 +80,28 @@ def test_nested_policy_summary_has_names_and_type_key():
 def test_repeated_messages():
     got = to_plain([_summary(), _summary()])
     assert [g["review_status"] for g in got] == ["REVIEWED", "REVIEWED"]
+
+
+def test_int64_are_numbers_at_every_depth():
+    from google.ads.googleads.v26.services.types.google_ads_service import (
+        GoogleAdsRow,
+    )
+
+    row = GoogleAdsRow()
+    row.campaign.id = 123456789012
+    row.campaign_budget.amount_micros = 5_000_000
+    row.campaign.selective_optimization.conversion_actions.append(
+        "customers/1/conversionActions/2"
+    )
+    got = to_plain(row)
+    assert got["campaign"]["id"] == 123456789012
+    assert got["campaign_budget"]["amount_micros"] == 5_000_000
+    assert to_plain(row.campaign.id) == 123456789012  # the same at the leaf
+
+
+def test_no_made_up_defaults():
+    got = to_plain(AdGroupAdPolicySummary(review_status=3))
+    assert got == {
+        "review_status": "REVIEWED"
+    }  # approval_status unset: absent, not "UNSPECIFIED"
+    assert to_plain(Metrics()) == {}

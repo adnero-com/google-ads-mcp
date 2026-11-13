@@ -66,12 +66,14 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
 - API version: ONE constant, `ads_mcp/api_version.py` `API_VERSION = "v26"`. Every `GoogleAdsClient`, every
   `get_service` / `get_type` call (`version=API_VERSION`, guarded by `tests/core/version_test.py`), the REST
   passthrough and the discovery resource use it; `adnero_auth.api_version()` returns it. There is no env override
-  any more: `GOOGLE_ADS_API_VERSION` is ignored with a warning. Minor releases (v26.2) are served on the major's
+  any more: a `GOOGLE_ADS_API_VERSION` naming another version stops the server at startup
+  (`adnero_auth.check_api_version_env`). Minor releases (v26.2) are served on the major's
   endpoint. Bump the constant, the `google-ads>=35.1.0,<36` pin and the checked-in schemas together.
 - Pure core (`ads_mcp/core/`): no I/O, failures as `Result` values (`core/result.py`).
   - `core/plain.py`: every value a tool returns is plain data with enum NAMES at every depth (nested messages too:
     `policy_summary.policy_topic_entries[].type` is `LIMITED`, not 4) and API keys (`type`, never proto-plus's
-    `type_`). `utils.format_output_value` delegates to it.
+    `type_`). int64 values (ids, micros) are JSON numbers at every depth, like a row's top-level fields (they
+    stay below 2**53). Only set fields appear: no made-up defaults. `utils.format_output_value` delegates to it.
   - `core/errors.py`: every `GoogleAdsException` becomes `{request_id, errors[]: {code, error_type, message,
     field_path, operation_index, trigger, exemptible, policy_topics, fix}}`. `utils.format_google_ads_error` renders
     one readable line per error, then `errors_json: <that JSON>`. Fix hints live in one table (`FIX_HINTS`):
@@ -80,7 +82,9 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     person they may ask.
   - `core/gaql.py`: `search_search` takes a GAQL `query` OR `resource` + `fields` (+ `conditions`, `orderings`,
     `limit`), and answers one bounded page: `max_rows` (default 500, max 10,000), a ~200 KB byte cap, and
-    `next_page_token` (our cursor over Google's 10,000-row pages, bound to the customer and query). One call = one
+    `next_page_token` (our cursor over Google's 10,000-row pages, bound to the customer and query). A cursor
+    that resumes inside a Google page needs a stable order: `ORDER BY <resource>.id` is added when that field is
+    selected and nothing is ordered; an unordered query cut mid-page gets no token but a `note`. One call = one
     Google page = one operation. The answer is `{rows, row_count, next_page_token, stopped_by, query}` (was a bare
     list).
 - Tests: `pytest` (nox runs it; it also runs the unittest classes). CI runs on PRs into `adnero/multi-tenant`
