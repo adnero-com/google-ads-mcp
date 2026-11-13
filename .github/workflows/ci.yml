@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main, adnero/multi-tenant ]
+    branches: [ main, 'adnero/**' ]
   push:
-    branches: [ main, adnero/multi-tenant ]
+    branches: [ main, 'adnero/**' ]
 
 jobs:
   lint:
