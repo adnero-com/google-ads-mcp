@@ -24,6 +24,7 @@ namespaces:
   api: true  # read, mutate (raw REST passthrough under one customer)
   schema: true  # list_resources, get_resource, get_mutate, get_enum, check_query
   lookup: true  # geo, language
+  audiences: true  # list, create, update, segments_search, custom_segment_create, signals_list, signal_attach, signal_detach
   resolve:
     prefix: ""  # the tool is just `resolve`
   policy: true  # report

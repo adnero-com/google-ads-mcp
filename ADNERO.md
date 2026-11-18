@@ -167,6 +167,20 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     shared budgets, each naming the rule (`rules/app_update.py`).
   - `campaigns_set_status` level AD with PAUSED reads the ad types first (1 operation) and refuses App ads with
     the reason (pause the ad group or campaign).
+- Audiences and audience signals (namespace `audiences`; pure rules in `rules/audience.py`, `rules/audience_signal.py`):
+  - Reads: `list` (the account's Audiences with their dimensions), `segments_search` (AFFINITY / IN_MARKET
+    user_interest, LIFE_EVENT, DETAILED_DEMOGRAPHIC, USER_LIST, CUSTOM_SEGMENT by name; 1 operation per kind; each
+    hit names the `audiences_create` argument that takes it), `signals_list` (the audience on each App install ad
+    group / PMax asset group).
+  - Writes (preview -> plan -> apply, through the one gate): `create` (Audience, CUSTOMER scope: age ranges as
+    '25-54' / '65+', genders, parental status, household income, include_undetermined, user lists, interests, life
+    events, detailed demographics, custom segments, excluded user lists), `update` (reads the audience, keeps what
+    is not passed, `[]` clears, the plan binds the audience as read), `custom_segment_create`
+    (CustomAudienceService, not in GoogleAdsService.Mutate: `adnero_mutate.service_mutate`; AUTO or SEARCH only),
+    `signal_attach` / `signal_detach` (App install ad groups: AdGroupCriterion.audience, at most one per ad group,
+    `replace` swaps it in the same atomic request; Performance Max: AssetGroupSignal.audience, several per asset
+    group; by campaign_id = every ad group / asset group). Engagement App ad groups (user lists) and
+    pre-registration (no criteria) are refused with the reason.
 - `scripts/live_smoke_validate_only.py`: a live smoke, NOT in CI, previews only, account 8396625493 through
   manager 8868324827 (hard-coded); it needs `GOOGLE_ADS_ACCESS_TOKEN`, never prints it, and replaces the gate with
   one that refuses any apply.

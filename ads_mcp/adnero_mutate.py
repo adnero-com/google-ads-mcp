@@ -451,3 +451,79 @@ def resource_names(response: Any) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+def service_mutate(
+    *,
+    tool: str,
+    customer_id: str,
+    payload: dict[str, Any],
+    service_name: str,
+    request_type: str,
+    operations: Callable[[Any], list[Any]],
+    change_items: Sequence[pac.ChangeItem],
+    validate_only: bool,
+    checksum: str | None,
+    ctx: Any = None,
+    notes: Sequence[str] = (),
+):
+    """`mutate` for a resource GoogleAdsService.Mutate does not carry (e.g. CustomAudienceService): one request
+    of that service (`request_type`, with `customer_id`, `operations`, `validate_only`), through the same `gate`
+    and the same plan binding (tool, customer, arguments, sha256 of the request sent).
+    """
+    ga_client = client()
+    service = utils.get_googleads_service_from_client(ga_client, service_name)
+    request = ga_client.get_type(request_type, version=API_VERSION)
+    request.customer_id = customer_id
+    request.operations.extend(operations(ga_client))
+    request.validate_only = False
+    sent = type(request).pb(request).SerializeToString(deterministic=True)
+    digest = plan_core.digest_of(
+        tool,
+        customer_id,
+        {"args": payload, "request_sha256": hashlib.sha256(sent).hexdigest()},
+    )
+    method = getattr(service, "mutate_" + _snake(service_name))
+
+    def _validate() -> None:
+        request.validate_only = True
+        try:
+            method(request=request)
+        except Exception as exc:
+            raise _fail(tool, exc) from exc
+
+    def _commit() -> MutationResult:
+        request.validate_only = False
+        try:
+            response = method(request=request)
+        except Exception as exc:
+            raise _fail(tool, exc) from exc
+        return MutationResult(
+            status="APPLIED",
+            customer_id=customer_id,
+            change_items=_items_out(change_items),
+            resource_names=[
+                r.resource_name for r in response.results if r.resource_name
+            ],
+            notes=list(notes),
+            next_step="Done. Read it back with search to confirm, or report the change to the person.",
+        )
+
+    return gate(
+        tool=tool,
+        customer_id=customer_id,
+        digest=digest,
+        change_items=change_items,
+        validate_only=validate_only,
+        plan_id=checksum,
+        ctx=ctx,
+        validate=_validate,
+        commit=_commit,
+        notes=notes,
+    )
+
+
+def _snake(service_name: str) -> str:
+    """'CustomAudienceService' -> 'custom_audiences' (the service's mutate method suffix)."""
+    base = re.sub(r"(?<!^)(?=[A-Z])", "_", service_name.removesuffix("Service"))
+    return base.lower() + "s"
