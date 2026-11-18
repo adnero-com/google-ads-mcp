@@ -179,3 +179,25 @@ def test_detach_only_that_audience():
     assert S.plan_detach((sig("10", "1"), sig("11", "2")), "1") == (
         sig("10", "1"),
     )
+
+
+@pytest.mark.parametrize(
+    "kind, lists, code",
+    [
+        ("install", ("50",), "USER_LIST_NOT_ALLOWED"),
+        ("pre_registration", ("50",), "USER_LIST_NOT_ALLOWED"),
+        ("engagement", (), "USER_LIST_REQUIRED"),
+        ("install", (), None),
+        ("engagement", ("50",), None),
+    ],
+)
+def test_app_ad_group_user_lists(kind, lists, code):
+    from ads_mcp.rules.app_spec import AccountFacts, AppSpec, UserListFact
+    from ads_mcp.rules.app_targeting import audience_problems
+
+    spec = AppSpec.model_construct(kind=kind, user_list_ids=lists)
+    facts = AccountFacts.model_construct(
+        user_lists=(UserListFact.model_construct(id="50"),), complete=True
+    )
+    codes = [p.code for p in audience_problems(spec, facts)]
+    assert codes == ([code] if code else [])

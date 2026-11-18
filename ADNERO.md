@@ -181,6 +181,12 @@ commit as the `google-ads-mcp` compose service, gateway target `google-ads`
     `replace` swaps it in the same atomic request; Performance Max: AssetGroupSignal.audience, several per asset
     group; by campaign_id = every ad group / asset group). Engagement App ad groups (user lists) and
     pre-registration (no criteria) are refused with the reason.
+  - App ad groups (`app_campaign_create`, `app_ad_group_create`): user lists only on engagement ad groups
+    (`USER_LIST_NOT_ALLOWED` on install and pre-registration, pointing to audience signals). Install ad groups are
+    created with `audience_setting.use_audience_grouped=true` (`use_audience_grouped`, default true; it cannot be
+    set later and Audience criteria need it per docs/remarketing/audiences; the App guide is silent). A preview
+    Google refuses for that setting is previewed again without it, with a note to apply with
+    `use_audience_grouped=false` (the plan binds the choice).
 - `scripts/live_smoke_validate_only.py`: a live smoke, NOT in CI, previews only, account 8396625493 through
   manager 8868324827 (hard-coded); it needs `GOOGLE_ADS_ACCESS_TOKEN`, never prints it, and replaces the gate with
   one that refuses any apply.

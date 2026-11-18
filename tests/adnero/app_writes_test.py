@@ -714,3 +714,81 @@ def test_an_unknown_outcome_keeps_the_plan_used(google):
             create.campaign_create(
                 **BASE, validate_only=False, plan_id=proposal.plan_id
             )
+
+
+def test_install_ad_groups_are_ready_for_audience_signals(google):
+    _, p = account()
+    with p:
+        create.campaign_create(**BASE)
+        group.ad_group_create(
+            customer_id="1", campaign_id="7", name="AG", headlines=["a", "b"],
+            descriptions=["c"], image_asset_ids=["10"],
+        )  # fmt: skip
+    for sent in google:
+        g = next(
+            o.ad_group_operation.create
+            for o in sent.ops
+            if "ad_group_operation" in o
+        )
+        assert g.audience_setting.use_audience_grouped is True
+
+
+def test_engagement_ad_groups_are_not_grouped(google):
+    _, p = account(sub_type="APP_CAMPAIGN_FOR_ENGAGEMENT",
+                   goal="OPTIMIZE_IN_APP_CONVERSIONS_TARGET_CONVERSION_COST")  # fmt: skip
+    with p:
+        group.ad_group_create(
+            customer_id="1", campaign_id="7", name="AG", headlines=["a", "b"],
+            descriptions=["c"], image_asset_ids=["10"], user_list_ids=["50"],
+        )  # fmt: skip
+    g = google[0].ops[0].ad_group_operation.create
+    assert "audience_setting" not in g
+
+
+def test_install_refuses_user_lists_and_points_to_audiences(google):
+    _, p = account()
+    with (
+        p,
+        pytest.raises(
+            ToolError, match="USER_LIST_NOT_ALLOWED.*audiences_signal_attach"
+        ),
+    ):
+        group.ad_group_create(
+            customer_id="1", campaign_id="7", name="AG", headlines=["a", "b"],
+            descriptions=["c"], image_asset_ids=["10"], user_list_ids=["50"],
+        )  # fmt: skip
+    assert google == []
+
+
+def test_a_refused_grouping_is_previewed_without_it(google, gads):
+    from ads_mcp import adnero_mutate as am
+
+    calls = []
+    real = am.mutate
+
+    def refusing(**kw):
+        grouped = kw["payload"]["audience_grouped"]
+        calls.append(grouped)
+        if grouped:
+            raise am.GoogleRefused(
+                "refused: FieldError.UNSUPPORTED at ad_group.audience_setting.use_audience_grouped"
+            )
+        return real(**kw)
+
+    _, p = account()
+    with p, patch.object(am, "mutate", side_effect=refusing):
+        args = dict(customer_id="1", campaign_id="7", name="AG", headlines=["a", "b"],
+                    descriptions=["c"], image_asset_ids=["10"])  # fmt: skip
+        proposal = group.ad_group_create(**args)
+        assert (
+            calls == [True, False]
+            and "use_audience_grouped=false" in proposal.notes[0]
+        )
+        with pytest.raises(ToolError, match="use_audience_grouped=false"):
+            group.ad_group_create(
+                **args, validate_only=False, plan_id=proposal.plan_id
+            )
+        applied = group.ad_group_create(
+            **args, use_audience_grouped=False, validate_only=False, plan_id=proposal.plan_id
+        )  # fmt: skip
+    assert applied.status == "APPLIED"

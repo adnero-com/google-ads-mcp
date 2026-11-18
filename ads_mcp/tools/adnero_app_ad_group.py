@@ -25,6 +25,7 @@ from ads_mcp.tools.adnero_app import app_mcp, read_facts
 
 from ads_mcp.tools.adnero_app_common import (
     _CREATE,
+    audience_grouped,
     _items,
     campaign_now,
     read_back,
@@ -47,6 +48,7 @@ def ad_group_create(
     youtube_video_asset_ids: list[str] | None = None,
     html5_asset_ids: list[str] | None = None,
     user_list_ids: list[str] | None = None,
+    use_audience_grouped: bool = True,
     validate_only: bool = True,
     plan_id: str | None = None,
     login_customer_id: str | int | None = None,
@@ -73,7 +75,10 @@ def ad_group_create(
         image_asset_ids: IMAGE asset ids.
         youtube_video_asset_ids: YOUTUBE_VIDEO asset ids.
         html5_asset_ids: MEDIA_BUNDLE asset ids (install campaigns only).
-        user_list_ids: User lists (engagement: required).
+        user_list_ids: User lists: engagement campaigns only (required there). Install campaigns take an audience
+            signal instead (audiences_create + audiences_signal_attach); pre-registration takes none.
+        use_audience_grouped: Install campaigns: create the ad group ready for an audience signal (default true;
+            it cannot be set later). When Google refuses it, the preview says so and is made without it.
         validate_only: True (default) previews; False applies (needs `plan_id`).
         plan_id: From the preview.
         login_customer_id: The manager (MCC) account to call through.
@@ -102,16 +107,22 @@ def ad_group_create(
     campaign = B.rn(cid, "campaigns", camp)
     group = B.rn(cid, "adGroups", -1)
 
-    def operations(client):
-        return (
-            [
-                B.ad_group_op(
-                    client, cid, campaign, name.strip(), -1, paused=True
-                )
-            ]
-            + B.user_list_ops(client, cid, group, spec.user_list_ids)
-            + [B.ad_op(client, group, spec.kind, B.content_of(cid, spec))]
-        )
+    grouped_ok = spec.kind == "install"
+
+    def operations_for(grouped: bool):
+        def operations(client):
+            return (
+                [
+                    B.ad_group_op(
+                        client, cid, campaign, name.strip(), -1, paused=True,
+                        audience_grouped=grouped,
+                    )  # fmt: skip
+                ]
+                + B.user_list_ops(client, cid, group, spec.user_list_ids)
+                + [B.ad_op(client, group, spec.kind, B.content_of(cid, spec))]
+            )
+
+        return operations
 
     shape = R.AD_SHAPES[spec.kind]
     items = _items(
@@ -134,20 +145,27 @@ def ad_group_create(
         f"App ad ({shape.ad_field})",
         name.strip(),
     )
-    return m.mutate(
-        tool="app_ad_group_create",
-        customer_id=cid,
-        payload={
-            "campaign_id": camp,
-            "name": name.strip(),
-            "spec": spec.model_dump(mode="json"),
-        },
-        operations=operations,
-        change_items=items,
-        validate_only=validate_only,
-        checksum=plan_id,
-        ctx=ctx,
-        mutable_resource=True,
-        read_back=read_back(login_customer_id),
-        notes=notes,
+
+    def run(grouped: bool) -> m.MutationResult:
+        return m.mutate(
+            tool="app_ad_group_create",
+            customer_id=cid,
+            payload={
+                "campaign_id": camp,
+                "name": name.strip(),
+                "spec": spec.model_dump(mode="json"),
+                "audience_grouped": grouped,
+            },
+            operations=operations_for(grouped),
+            change_items=items,
+            validate_only=validate_only,
+            checksum=plan_id,
+            ctx=ctx,
+            mutable_resource=True,
+            read_back=read_back(login_customer_id),
+            notes=notes,
+        )
+
+    return audience_grouped(
+        run, grouped_ok and bool(use_audience_grouped), validate_only
     )
