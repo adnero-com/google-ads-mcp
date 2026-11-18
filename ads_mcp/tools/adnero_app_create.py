@@ -28,6 +28,7 @@ from ads_mcp.tools.adnero_app import app_mcp, read_facts, spec_of
 
 from ads_mcp.tools.adnero_app_common import (
     _CREATE,
+    audience_grouped,
     _items,
     read_back,
     refuse_errors,
@@ -59,6 +60,7 @@ def campaign_create(
     start_date: str | None = None,
     end_date: str | None = None,
     contains_eu_political_advertising: bool | None = None,
+    use_audience_grouped: bool = True,
     validate_only: bool = True,
     plan_id: str | None = None,
     login_customer_id: str | int | None = None,
@@ -103,7 +105,10 @@ def campaign_create(
         image_asset_ids: IMAGE asset ids.
         youtube_video_asset_ids: YOUTUBE_VIDEO asset ids.
         html5_asset_ids: MEDIA_BUNDLE asset ids (install only).
-        user_list_ids: User lists for the ad group (engagement: required).
+        user_list_ids: User lists for the ad group: engagement campaigns only (required there). Install campaigns
+            take an audience signal instead (audiences_create + audiences_signal_attach).
+        use_audience_grouped: Install campaigns: create the ad group ready for an audience signal (default true;
+            it cannot be set later). When Google refuses it, the preview says so and is made without it.
         ad_group_name: Default: '<name> ad group'.
         start_date: YYYY-MM-DD in the account's time zone; default: when it is turned on.
         end_date: YYYY-MM-DD; default: no end.
@@ -138,27 +143,31 @@ def campaign_create(
     campaign = B.rn(cid, "campaigns", -2)
     group = B.rn(cid, "adGroups", -3)
 
-    def operations(client):
-        return (
-            [
+    def operations_for(grouped: bool):
+        def operations(client):
+            return (
+                [
                 B.budget_op(client, cid, name.strip(), budget),
                 B.campaign_op(
                     client, cid, spec, name.strip(), start, end,
                     eu,
                 ),
             ]  # fmt: skip
-            + B.criterion_ops(
+                + B.criterion_ops(
                 client, cid, campaign, spec.geo_target_ids,
                 spec.excluded_geo_target_ids, spec.language_ids,
             )  # fmt: skip
-            + [
-                B.ad_group_op(
-                    client, cid, campaign, group_name, -3, paused=False
-                )
-            ]
-            + B.user_list_ops(client, cid, group, spec.user_list_ids)
-            + [B.ad_op(client, group, spec.kind, B.content_of(cid, spec))]
-        )
+                + [
+                    B.ad_group_op(
+                    client, cid, campaign, group_name, -3, paused=False,
+                    audience_grouped=grouped,
+                )  # fmt: skip
+                ]
+                + B.user_list_ops(client, cid, group, spec.user_list_ids)
+                + [B.ad_op(client, group, spec.kind, B.content_of(cid, spec))]
+            )
+
+        return operations
 
     shape = R.AD_SHAPES[spec.kind]
     items = (
@@ -214,16 +223,24 @@ def campaign_create(
         "eu": eu,
         "ad_group_name": group_name,
     }
-    return m.mutate(
-        tool="app_campaign_create",
-        customer_id=cid,
-        payload=payload,
-        operations=operations,
-        change_items=items,
-        validate_only=validate_only,
-        checksum=plan_id,
-        ctx=ctx,
-        mutable_resource=True,
-        read_back=read_back(login_customer_id),
-        notes=notes,
+
+    def run(grouped: bool) -> m.MutationResult:
+        return m.mutate(
+            tool="app_campaign_create",
+            customer_id=cid,
+            payload={**payload, "audience_grouped": grouped},
+            operations=operations_for(grouped),
+            change_items=items,
+            validate_only=validate_only,
+            checksum=plan_id,
+            ctx=ctx,
+            mutable_resource=True,
+            read_back=read_back(login_customer_id),
+            notes=notes,
+        )
+
+    return audience_grouped(
+        run,
+        spec.kind == "install" and bool(use_audience_grouped),
+        validate_only,
     )

@@ -34,6 +34,25 @@ def audience_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
         if spec.kind == "engagement" and not spec.user_list_ids
         else []
     )
+    # Docs (app-campaigns/create-ad-group): "Don't attach UserListInfo criteria to APP_CAMPAIGN ad groups";
+    # pre-registration ad groups take no criteria at all. Lists for installs go inside an Audience (signal).
+    not_allowed = (
+        [
+            R.Problem(
+                code="USER_LIST_NOT_ALLOWED",
+                field="user_list_ids",
+                message=(
+                    "Install campaigns take no user list on the ad group: put the lists in an audience "
+                    "(audiences_create user_list_ids) and attach it with audiences_signal_attach."
+                    if spec.kind == "install"
+                    else "Pre-registration ad groups take no criteria: leave user_list_ids out."
+                ),
+                fix="Remove user_list_ids.",
+            )
+        ]
+        if spec.kind != "engagement" and spec.user_list_ids
+        else []
+    )
     missing = [
         R.Problem(
             code="USER_LIST_NOT_FOUND",
@@ -44,7 +63,7 @@ def audience_problems(spec: AppSpec, facts: AccountFacts) -> list[R.Problem]:
         for i, u in enumerate(spec.user_list_ids)
         if u not in known
     ]
-    return required + missing
+    return required + not_allowed + missing
 
 
 def geo_problems(spec: AppSpec) -> list[R.Problem]:

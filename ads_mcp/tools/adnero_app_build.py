@@ -159,13 +159,23 @@ def criterion_ops(
 
 
 def ad_group_op(
-    client, cid: str, campaign: str, name: str, temp_id: int, paused: bool
+    client,
+    cid: str,
+    campaign: str,
+    name: str,
+    temp_id: int,
+    paused: bool,
+    audience_grouped: bool = False,
 ) -> Any:
     op = _op(client)
     g = op.ad_group_operation.create
     g.resource_name = rn(cid, "adGroups", temp_id)
     g.campaign = campaign
     g.name = name
+    if audience_grouped:
+        # Audience (AudienceInfo) criteria need it, and it can only be set when the ad group is created
+        # (docs/remarketing/audiences); the App guide does not say whether App ad groups need it.
+        g.audience_setting.use_audience_grouped = True
     # App ad groups take no `type`.
     g.status = (
         client.enums.AdGroupStatusEnum.PAUSED

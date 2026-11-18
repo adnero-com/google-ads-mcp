@@ -118,7 +118,7 @@ _RULES: dict[str, list[dict]] = {
         {
             "id": "app_ad_group.user_list",
             "applies_to": "user_list",
-            "rule": "APP_CAMPAIGN_FOR_ENGAGEMENT ad groups need a user list criterion; App criteria are never negative",
+            "rule": "APP_CAMPAIGN_FOR_ENGAGEMENT ad groups need a user list criterion; APP_CAMPAIGN (install) ad groups take no user list (an audience signal instead, at most one AudienceInfo per ad group); pre-registration ad groups take no criteria; App criteria are never negative",
             "source": _SOURCE_API,
         }
     ],

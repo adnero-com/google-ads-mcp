@@ -14,11 +14,13 @@
 
 """Shared edge helpers of the App write tools: refusals, read-back, the campaign as it is now."""
 
+from collections.abc import Callable
 from typing import Any
 
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from ads_mcp import adnero_mutate as m
 from ads_mcp import propose_and_confirm as pac
 from ads_mcp.rules.app_build import kind_of
 from ads_mcp.rules.app_spec import AppSpec
@@ -122,3 +124,34 @@ def spec_from_campaign(row: dict[str, Any], **creative) -> AppSpec:
         ),
         **creative,
     )
+
+
+_GROUPED_OFF = (
+    "Google refused ad_group.audience_setting.use_audience_grouped here, so this preview is without it: apply "
+    "with use_audience_grouped=false. Audience signals may then be refused on this ad group."
+)
+
+
+def _about_grouping(exc: Exception) -> bool:
+    return "audience_setting" in str(exc) or "use_audience_grouped" in str(exc)
+
+
+def audience_grouped(
+    run: Callable[[bool], m.MutationResult],
+    wanted: bool,
+    validate_only: bool,
+) -> m.MutationResult:
+    """Runs a create with use_audience_grouped as asked. A PREVIEW Google refuses for that setting is previewed
+    again without it (the note says to apply with use_audience_grouped=false, so the plan matches); an apply
+    refused for it says the same."""
+    try:
+        return run(wanted)
+    except m.GoogleRefused as exc:
+        if not (wanted and _about_grouping(exc)):
+            raise
+        if not validate_only:
+            raise m.GoogleRefused(
+                f"{exc}\nFix: call again with use_audience_grouped=false (preview first)."
+            ) from exc
+    result = run(False)
+    return result.model_copy(update={"notes": [_GROUPED_OFF, *result.notes]})

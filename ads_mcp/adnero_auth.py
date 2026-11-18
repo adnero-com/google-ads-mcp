@@ -415,13 +415,24 @@ in one atomic request (budget, PAUSED campaign, targeting, ad group, App ad); ap
 targets, conversion actions, dates and targeting (app, store and kind never change). App ads cannot be paused:
 pause the ad group or campaign.
 
+Audience signals: App campaigns (and Performance Max) cannot TARGET an age, gender or interest, but they take an
+AUDIENCE SIGNAL that can hold ages, genders, parental status, household income, interests (affinity, in-market),
+life events, detailed demographics, your user lists and custom segments; Google treats it as a hint, not a limit.
+Steps: audiences_segments_search finds segment ids by name (each hit says which argument takes it);
+audiences_custom_segment_create makes a segment from keywords, URLs or apps; audiences_list shows existing
+audiences; audiences_create makes one (e.g. age_ranges ['25-54'] + interest_ids); audiences_signals_list shows
+what is attached; audiences_signal_attach puts it on an App install campaign's ad groups (one audience per ad group;
+replace=true swaps) or a Performance Max campaign's asset groups; audiences_update changes it everywhere at once;
+audiences_signal_detach removes it. App engagement ad groups take user lists instead; pre-registration takes none.
+
 Change with the campaigns_*, keywords_* and app_* tools. Every change is previewed first (validate_only=true:
 Google checks it, nothing changes, the answer has a plan_id) and applied only after the person approves
 (validate_only=false, the SAME arguments and that plan_id, within 15 minutes; the server signs plans, so they
 cannot be made up, and any changed argument voids one). New campaigns and ad groups are always created PAUSED;
 turning them on is campaigns_set_status. Ads and keywords are named 'adGroupId~id'.
 
-When no typed tool covers a field, use the raw Google Ads REST API: api_read reads any resource of the account (GET
+Nothing is impossible because a typed tool is missing: when no typed tool covers a field or resource, use the raw
+Google Ads REST API: api_read reads any resource of the account (GET
 under customers/{id}, or a googleAds:search POST), and api_mutate previews a raw '<resource>:mutate' body
 (validate_only=true, a plan_id), then applies it with validate_only=false and that plan_id after the person
 approves. It never removes: pause instead."""
