@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -23,7 +23,7 @@ jobs:
         run: nox -s lint
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
@@ -41,7 +41,7 @@ jobs:
         run: nox -s tests-${{ matrix.python-version }}
 
   smoke-tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -56,7 +56,7 @@ jobs:
         run: nox -s smoke_tests
 
   llm-tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python

@@ -23,7 +23,7 @@ concurrency:
 jobs:
   build:
     name: Build and validate distributions
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     steps:
       - name: Check out the source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -263,7 +263,7 @@ jobs:
     name: Publish to TestPyPI
     if: github.event_name == 'workflow_dispatch'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     environment:
       name: testpypi
       url: https://test.pypi.org/p/google-ads-mcp
@@ -287,7 +287,7 @@ jobs:
     name: Publish to PyPI
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     environment:
       name: pypi
       url: https://pypi.org/p/google-ads-mcp
@@ -312,7 +312,7 @@ jobs:
     needs:
       - build
       - publish-pypi
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, google-ads-mcp]
     permissions:
       contents: write
     steps:
