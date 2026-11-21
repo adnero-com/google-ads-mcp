@@ -1,0 +1,5 @@
+# Our repo-level runners (adnero-com/adplatform infra/ci-runner/README.md, "Other repositories").
+self-hosted-runner:
+  labels:
+    - adnero-ci
+    - google-ads-mcp
